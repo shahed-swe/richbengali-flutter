@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<!-- ----------------------------------------------------------------
+		     Bundle identity / display
+		     ---------------------------------------------------------------- -->
+		<key>CFBundleDevelopmentRegion</key>
+		<string>$(DEVELOPMENT_LANGUAGE)</string>
+		<key>CFBundleDisplayName</key>
+		<string>RichBengali</string>
+		<key>CFBundleExecutable</key>
+		<string>$(EXECUTABLE_NAME)</string>
+		<key>CFBundleIdentifier</key>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<key>CFBundleInfoDictionaryVersion</key>
+		<string>6.0</string>
+		<key>CFBundleName</key>
+		<string>richbengali</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>$(FLUTTER_BUILD_NAME)</string>
+		<key>CFBundleSignature</key>
+		<string>????</string>
+		<key>CFBundleVersion</key>
+		<string>$(FLUTTER_BUILD_NUMBER)</string>
+
+		<!-- ----------------------------------------------------------------
+		     Phase 8: Custom URL scheme for deep links (richbengali://)
+		     Example: richbengali://payout?status=success
+		     ---------------------------------------------------------------- -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>com.richbengali.app</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>richbengali</string>
+				</array>
+			</dict>
+		</array>
+
+		<!-- ----------------------------------------------------------------
+		     Phase 8: Background modes
+		     voip              — PushKit / CallKit VoIP push
+		     audio             — Agora audio continues while screen is locked
+		     fetch             — background refresh
+		     remote-notification — silent FCM data messages
+		     ---------------------------------------------------------------- -->
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>voip</string>
+			<string>audio</string>
+			<string>fetch</string>
+			<string>remote-notification</string>
+		</array>
+
+		<!-- ----------------------------------------------------------------
+		     Phase 8: Privacy usage descriptions — required by App Store
+		     ---------------------------------------------------------------- -->
+		<key>NSCameraUsageDescription</key>
+		<string>RichBengali uses the camera for video calls and profile photo updates.</string>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>RichBengali uses the microphone for audio and video calls.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>RichBengali needs access to your photo library to let you pick a profile photo.</string>
+		<key>NSPhotoLibraryAddUsageDescription</key>
+		<string>RichBengali would like to save photos to your library.</string>
+
+		<!-- ----------------------------------------------------------------
+		     Phase 8: Exempt from ITSA encryption check
+		     ---------------------------------------------------------------- -->
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
+
+		<!-- ----------------------------------------------------------------
+		     Standard Flutter / iOS keys
+		     ---------------------------------------------------------------- -->
+		<key>LSRequiresIPhoneOS</key>
+		<true/>
+		<key>UILaunchStoryboardName</key>
+		<string>LaunchScreen</string>
+		<key>UIMainStoryboardFile</key>
+		<string>Main</string>
+		<key>UISupportedInterfaceOrientations</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>UISupportedInterfaceOrientations~ipad</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationPortraitUpsideDown</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+		<true/>
+		<key>UIApplicationSupportsIndirectInputEvents</key>
+		<true/>
+		<!-- flutter_native_splash added this key -->
+		<key>UIStatusBarHidden</key>
+		<false/>
+	</dict>
+</plist>
