@@ -146,14 +146,27 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
         return Stack(
           children: [
             child ?? const SizedBox.shrink(),
-            // Full-screen call overlay (hidden when minimized via SizedBox.shrink)
-            const OngoingCallScreen(),
-            // Minimized call bar — appears at bottom when call is minimized
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: const MinimizedCallBar(),
+            // The call overlay is rendered ABOVE the router's Navigator, so it
+            // has no Overlay ancestor. Material widgets inside it (the beauty
+            // Sliders, tooltips, etc.) call Overlay.of and would throw
+            // "No Overlay widget found." Give them a dedicated Overlay here.
+            Positioned.fill(
+              child: Overlay(
+                initialEntries: [
+                  // Full-screen call UI (renders nothing when no active call).
+                  OverlayEntry(
+                    builder: (_) => const OngoingCallScreen(),
+                  ),
+                  // Minimized call bar — full-width at the bottom when minimized.
+                  OverlayEntry(
+                    builder: (_) => const Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [MinimizedCallBar()],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         );

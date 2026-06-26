@@ -19,7 +19,6 @@ class FavoritesScreen extends ConsumerWidget {
         children: [
           // Header
           Container(
-            color: Colors.white,
             padding: EdgeInsets.only(
               top: MediaQuery.of(context).padding.top + 12,
               bottom: 12,
@@ -27,6 +26,7 @@ class FavoritesScreen extends ConsumerWidget {
               right: 16,
             ),
             decoration: const BoxDecoration(
+              color: Colors.white,
               border:
                   Border(bottom: BorderSide(color: Color(0xFFf9fafb))),
             ),

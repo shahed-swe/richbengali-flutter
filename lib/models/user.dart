@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../core/json_parse.dart';
 
 /// Photo entry from the backend
 class UserPhoto {
@@ -18,8 +19,8 @@ class UserPhoto {
     return UserPhoto(
       id: (json['id'] ?? '').toString(),
       url: (json['url'] ?? '').toString(),
-      sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
-      isPrimary: json['is_primary'] == true,
+      sortOrder: asInt(json['sort_order']),
+      isPrimary: asBool(json['is_primary']),
     );
   }
 
@@ -176,8 +177,8 @@ class User {
       bio: json['bio']?.toString(),
       work: json['work']?.toString(),
       lookingFor: json['looking_for']?.toString(),
-      heightCm: (json['height_cm'] as num?)?.toInt(),
-      weightKg: (json['weight_kg'] as num?)?.toInt(),
+      heightCm: asIntN(json['height_cm']),
+      weightKg: asIntN(json['weight_kg']),
       drinking: json['drinking']?.toString(),
       smoking: json['smoking']?.toString(),
       religion: json['religion']?.toString(),
@@ -186,18 +187,18 @@ class User {
       languages: parseStringList(json['languages']),
       interests: parseStringList(json['interests']),
       photoList: photos,
-      walletBalanceUsd: (json['wallet_balance_usd'] as num?)?.toDouble(),
-      lifetimeEarningsUsd: (json['lifetime_earnings_usd'] as num?)?.toDouble(),
-      todayEarnedUsd: (json['today_earned_usd'] as num?)?.toDouble(),
-      isPremium: json['is_premium'] as bool?,
+      walletBalanceUsd: asDoubleN(json['wallet_balance_usd']),
+      lifetimeEarningsUsd: asDoubleN(json['lifetime_earnings_usd']),
+      todayEarnedUsd: asDoubleN(json['today_earned_usd']),
+      isPremium: json['is_premium'] == null ? null : asBool(json['is_premium']),
       stripeSubscriptionId: json['stripe_subscription_id']?.toString(),
-      isLiked: json['is_liked'] == true,
-      isFavorited: json['is_favorited'] == true,
-      isSuperliked: json['is_superliked'] == true,
-      isOnline: json['is_online'] as bool?,
-      isInCall: json['is_in_call'] as bool?,
-      isSubscribed: json['is_subscribed'] as bool?,
-      balance: (json['balance'] as num?)?.toDouble(),
+      isLiked: asBool(json['is_liked']),
+      isFavorited: asBool(json['is_favorited']),
+      isSuperliked: asBool(json['is_superliked']),
+      isOnline: json['is_online'] == null ? null : asBool(json['is_online']),
+      isInCall: json['is_in_call'] == null ? null : asBool(json['is_in_call']),
+      isSubscribed: json['is_subscribed'] == null ? null : asBool(json['is_subscribed']),
+      balance: asDoubleN(json['balance']),
       fcmToken: json['fcm_token']?.toString(),
       createdAt: json['created_at']?.toString(),
     );
@@ -422,14 +423,14 @@ class Me extends User {
       balance: user.balance,
       fcmToken: user.fcmToken,
       createdAt: user.createdAt,
-      availableCallMinutes:
-          (json['available_call_minutes'] as num?)?.toDouble(),
-      minWithdrawalCap: (json['min_withdrawal_cap'] as num?)?.toDouble(),
+      availableCallMinutes: asDoubleN(json['available_call_minutes']),
+      minWithdrawalCap: asDoubleN(json['min_withdrawal_cap']),
       stripePriceId: json['stripe_price_id']?.toString(),
       stripeSubscriptionStatus:
           json['stripe_subscription_status']?.toString(),
-      stripeCancelAtPeriodEnd:
-          json['stripe_cancel_at_period_end'] as bool?,
+      stripeCancelAtPeriodEnd: json['stripe_cancel_at_period_end'] == null
+          ? null
+          : asBool(json['stripe_cancel_at_period_end']),
       wiseRecipientId: json['wise_recipient_id']?.toString(),
       wiseRecipientDetails: json['wise_recipient_details'] is Map
           ? Map<String, dynamic>.from(

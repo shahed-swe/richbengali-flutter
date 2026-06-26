@@ -1,3 +1,5 @@
+import '../core/json_parse.dart';
+
 /// Mirrors the shape returned by GET /messages (conversations list).
 /// The backend returns an array of User objects who have exchanged messages
 /// with the current user, with extra fields for last message + unread count.
@@ -69,7 +71,7 @@ class Conversation {
     return Conversation(
       otherUser: ConversationUser.fromJson(json),
       lastMessage: json['last_message']?.toString(),
-      unreadCount: (json['unread_count'] as num?)?.toInt() ?? 0,
+      unreadCount: asInt(json['unread_count']),
       lastMessageAt: json['last_message_at']?.toString(),
     );
   }

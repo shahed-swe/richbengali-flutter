@@ -1,13 +1,36 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../services/call_service.dart';
 import '../../state/call_overlay_provider.dart';
 import '../../theme/theme.dart';
 
-/// Mirrors BeautySettingsModal.tsx â€” bottom-sheet with 4 sliders controlling
-/// beauty effects: Smoothness, Background Blur, Slim Face, Big Eyes.
+// ---------------------------------------------------------------------------
+// Color swatches offered in the background picker
+// ---------------------------------------------------------------------------
+
+const List<_ColorSwatch> _kColorSwatches = [
+  _ColorSwatch(color: Color(0xFF4A90D9), label: 'Blue'),
+  _ColorSwatch(color: Color(0xFF34A853), label: 'Green'),
+  _ColorSwatch(color: Color(0xFFF4B400), label: 'Amber'),
+];
+
+class _ColorSwatch {
+  const _ColorSwatch({required this.color, required this.label});
+  final Color color;
+  final String label;
+}
+
+// ---------------------------------------------------------------------------
+// BeautySettingsModal
+// ---------------------------------------------------------------------------
+
+/// Mirrors BeautySettingsModal.tsx — bottom-sheet with background picker and
+/// 3 sliders controlling beauty effects: Smoothness, Slim Face, Big Eyes.
 class BeautySettingsModal extends ConsumerWidget {
   const BeautySettingsModal({super.key, required this.onClose});
 
@@ -21,6 +44,10 @@ class BeautySettingsModal extends ConsumerWidget {
 
     Future<void> reapply() async {
       await callService.reapplyBeauty();
+    }
+
+    Future<void> reapplyBg() async {
+      await callService.reapplyBackground();
     }
 
     return Container(
@@ -69,22 +96,27 @@ class BeautySettingsModal extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 24),
+
+          // ----------------------------------------------------------------
+          // Background section
+          // ----------------------------------------------------------------
+          _BackgroundPicker(
+            overlay: overlay,
+            notifier: notifier,
+            reapplyBg: reapplyBg,
+          ),
+
+          const SizedBox(height: 28),
+
+          // ----------------------------------------------------------------
+          // Sliders — Smoothness, Slim Face, Big Eyes (Background Blur removed)
+          // ----------------------------------------------------------------
           _BeautySlider(
             icon: LucideIcons.sparkles,
             label: 'Smoothness',
             value: overlay.beautySmoothness,
             onChanged: (v) {
               notifier.setBeautySmoothness(v);
-              reapply();
-            },
-          ),
-          const SizedBox(height: 20),
-          _BeautySlider(
-            icon: LucideIcons.layers,
-            label: 'Background Blur',
-            value: overlay.beautyBlurDegree,
-            onChanged: (v) {
-              notifier.setBeautyBlurDegree(v);
               reapply();
             },
           ),
@@ -113,6 +145,271 @@ class BeautySettingsModal extends ConsumerWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Background Picker
+// ---------------------------------------------------------------------------
+
+class _BackgroundPicker extends ConsumerWidget {
+  const _BackgroundPicker({
+    required this.overlay,
+    required this.notifier,
+    required this.reapplyBg,
+  });
+
+  final CallOverlayState overlay;
+  final CallOverlayNotifier notifier;
+  final Future<void> Function() reapplyBg;
+
+  bool _isColorSelected(Color c) {
+    if (overlay.bgMode != VirtualBgMode.color) return false;
+    // Compare ignoring alpha — stored value is 0xRRGGBB, Color is 0xAARRGGBB
+    final stored = overlay.bgColor ?? -1;
+    final r = (c.r * 255).round();
+    final g = (c.g * 255).round();
+    final b = (c.b * 255).round();
+    final argb = (r << 16) | (g << 8) | b;
+    return stored == argb;
+  }
+
+  Future<void> _pickImage(BuildContext context) async {
+    try {
+      final picker = ImagePicker();
+      final file = await picker.pickImage(source: ImageSource.gallery);
+      if (file != null) {
+        notifier.setBgImage(file.path);
+        await reapplyBg();
+      }
+    } catch (e) {
+      debugPrint('[BgPicker] image_picker error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Background',
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 90,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              // ---- None ----
+              _BgTile(
+                label: 'None',
+                isSelected: overlay.bgMode == VirtualBgMode.none,
+                onTap: () async {
+                  notifier.setBgMode(VirtualBgMode.none);
+                  await reapplyBg();
+                },
+                child: const Icon(LucideIcons.ban,
+                    size: 26, color: Colors.white70),
+              ),
+              const SizedBox(width: 10),
+
+              // ---- Blur (light) ----
+              _BgTile(
+                label: 'Blur',
+                isSelected: overlay.bgMode == VirtualBgMode.blurLight,
+                onTap: () async {
+                  notifier.setBgMode(VirtualBgMode.blurLight);
+                  await reapplyBg();
+                },
+                child: const Icon(LucideIcons.droplets,
+                    size: 26, color: Colors.white70),
+              ),
+              const SizedBox(width: 10),
+
+              // ---- Blur (strong) ----
+              _BgTile(
+                label: 'Strong',
+                isSelected: overlay.bgMode == VirtualBgMode.blurStrong,
+                onTap: () async {
+                  notifier.setBgMode(VirtualBgMode.blurStrong);
+                  await reapplyBg();
+                },
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: const [
+                    Icon(LucideIcons.droplets, size: 26, color: Colors.white70),
+                    Positioned(
+                      right: 6,
+                      bottom: 6,
+                      child: Icon(LucideIcons.droplets,
+                          size: 14, color: Colors.white38),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // ---- Image from gallery ----
+              _ImageBgTile(
+                overlay: overlay,
+                onTap: () => _pickImage(context),
+              ),
+              const SizedBox(width: 10),
+
+              // ---- Color swatches ----
+              ..._kColorSwatches.expand((swatch) => [
+                    _BgTile(
+                      label: swatch.label,
+                      isSelected: _isColorSelected(swatch.color),
+                      onTap: () async {
+                        final r = (swatch.color.r * 255).round();
+                        final g = (swatch.color.g * 255).round();
+                        final b = (swatch.color.b * 255).round();
+                        final rgb = (r << 16) | (g << 8) | b;
+                        notifier.setBgColor(rgb);
+                        await reapplyBg();
+                      },
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: swatch.color,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ]),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Image tile — shows thumbnail if an image is selected, else "add" icon
+// ---------------------------------------------------------------------------
+
+class _ImageBgTile extends StatelessWidget {
+  const _ImageBgTile({required this.overlay, required this.onTap});
+
+  final CallOverlayState overlay;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = overlay.bgMode == VirtualBgMode.image;
+    final hasImage =
+        overlay.bgImagePath != null && overlay.bgImagePath!.isNotEmpty;
+
+    Widget inner;
+    if (isSelected && hasImage) {
+      inner = ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.file(
+          File(overlay.bgImagePath!),
+          width: 64,
+          height: 64,
+          fit: BoxFit.cover,
+          errorBuilder: (_, e, s) => const Icon(LucideIcons.imagePlus,
+              size: 26, color: Colors.white70),
+        ),
+      );
+    } else {
+      inner = const Icon(LucideIcons.imagePlus, size: 26, color: Colors.white70);
+    }
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: const Color(0xFF2a2a2e),
+              border: isSelected
+                  ? Border.all(color: AppColors.brandPink, width: 2.5)
+                  : Border.all(color: Colors.white12, width: 1),
+            ),
+            child: Center(child: inner),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            isSelected && hasImage ? 'Photo' : 'Add photo',
+            style: TextStyle(
+              fontSize: 10,
+              color: isSelected ? AppColors.brandPink : Colors.white54,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Generic background tile
+// ---------------------------------------------------------------------------
+
+class _BgTile extends StatelessWidget {
+  const _BgTile({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+    required this.child,
+  });
+
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: const Color(0xFF2a2a2e),
+              border: isSelected
+                  ? Border.all(color: AppColors.brandPink, width: 2.5)
+                  : Border.all(color: Colors.white12, width: 1),
+            ),
+            child: Center(child: child),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: isSelected ? AppColors.brandPink : Colors.white54,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Beauty slider
+// ---------------------------------------------------------------------------
 
 class _BeautySlider extends StatelessWidget {
   const _BeautySlider({
@@ -169,4 +466,3 @@ class _BeautySlider extends StatelessWidget {
     );
   }
 }
-

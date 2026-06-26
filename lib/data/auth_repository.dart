@@ -22,8 +22,35 @@ class AuthResult {
 String _extractMessage(DioException e, String fallback) {
   try {
     final data = e.response?.data;
-    if (data is Map) return (data['message'] ?? fallback).toString();
     if (data is String && data.isNotEmpty) return data;
+    if (data is Map) {
+      // errors[] array takes priority: join all entry messages
+      final errors = data['errors'];
+      if (errors is List && errors.isNotEmpty) {
+        final parts = errors
+            .whereType<Map>()
+            .map((err) {
+              final msg = err['message']?.toString() ?? '';
+              final path = err['path']?.toString() ?? '';
+              return (path.isNotEmpty && msg.isNotEmpty)
+                  ? '$path: $msg'
+                  : msg.isNotEmpty
+                      ? msg
+                      : path;
+            })
+            .where((s) => s.isNotEmpty)
+            .toList();
+        if (parts.isNotEmpty) return parts.join('; ');
+      }
+      // single message field
+      final msg = data['message']?.toString() ?? '';
+      if (msg.isNotEmpty && msg != 'Validation failed') return msg;
+      // error field
+      final err = data['error']?.toString() ?? '';
+      if (err.isNotEmpty) return err;
+      // fall back to message even if it says "Validation failed"
+      if (msg.isNotEmpty) return msg;
+    }
   } catch (_) {}
   return fallback;
 }

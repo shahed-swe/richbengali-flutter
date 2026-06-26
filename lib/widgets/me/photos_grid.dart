@@ -27,6 +27,8 @@ class PhotosGrid extends ConsumerStatefulWidget {
 class _PhotosGridState extends ConsumerState<PhotosGrid> {
   final List<bool> _slotLoading = [false, false, false, false, false];
   final _picker = ImagePicker();
+  bool _uploadingNew = false;
+  static const int _maxPhotos = 5;
 
   List<UserPhoto> get _sorted {
     return [...widget.photos]..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
@@ -45,27 +47,40 @@ class _PhotosGridState extends ConsumerState<PhotosGrid> {
     setState(() => _slotLoading[idx] = value);
   }
 
-  Future<void> _handleUpload(int slotIndex) async {
-    final path = await _pickImage();
-    if (path == null) return;
+  Future<void> _handleAddPhotos() async {
+    final remaining = _maxPhotos - widget.photos.length;
+    if (remaining <= 0) return;
 
-    _setLoading(slotIndex, true);
+    final files = await _picker.pickMultiImage(imageQuality: 80);
+    if (files.isEmpty) return;
+
+    final toUpload = files.take(remaining).toList();
+    final skipped = files.length - toUpload.length;
+
+    if (!mounted) return;
+    setState(() => _uploadingNew = true);
+    var uploaded = 0;
     try {
-      await ref.read(meRepositoryProvider).uploadPhoto(path);
+      for (final f in toUpload) {
+        await ref.read(meRepositoryProvider).uploadPhoto(f.path);
+        uploaded++;
+      }
       await ref.read(meProvider.notifier).refresh();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photo uploaded successfully')),
-        );
+        final msg = skipped > 0
+            ? 'Uploaded $uploaded photo(s) — max $_maxPhotos, $skipped skipped'
+            : 'Uploaded $uploaded photo(s)';
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to upload photo: $e')),
+          SnackBar(content: Text('Failed to upload: $e')),
         );
       }
     } finally {
-      _setLoading(slotIndex, false);
+      if (mounted) setState(() => _uploadingNew = false);
     }
   }
 
@@ -172,33 +187,31 @@ class _PhotosGridState extends ConsumerState<PhotosGrid> {
   @override
   Widget build(BuildContext context) {
     final sorted = _sorted;
-    final slots = List<UserPhoto?>.generate(5, (i) => i < sorted.length ? sorted[i] : null);
+    final slotWidth = (MediaQuery.of(context).size.width - 48 - 10) / 2;
+    final canAddMore = sorted.length < _maxPhotos;
 
     return Wrap(
       spacing: 10,
       runSpacing: 10,
-      children: List.generate(5, (idx) {
-        final photo = slots[idx];
-        final isLoading = _slotLoading[idx];
-        final slotWidth = (MediaQuery.of(context).size.width - 48 - 10) / 2;
-
-        if (isLoading) {
-          return _buildLoadingSlot(slotWidth);
-        }
-
-        if (photo != null) {
-          return _buildFilledSlot(photo, idx, sorted.length, slotWidth);
-        }
-
-        return _buildEmptySlot(idx, slotWidth);
-      }),
+      children: [
+        for (int i = 0; i < sorted.length; i++)
+          if (_slotLoading[i])
+            _buildLoadingSlot(slotWidth)
+          else
+            _buildFilledSlot(sorted[i], i, sorted.length, slotWidth),
+        // Single multi-select "Add Photos" tile (replaces per-slot upload boxes)
+        if (_uploadingNew)
+          _buildLoadingSlot(slotWidth)
+        else if (canAddMore)
+          _buildAddSlot(slotWidth, _maxPhotos - sorted.length),
+      ],
     );
   }
 
   Widget _buildLoadingSlot(double width) {
     return Container(
       width: width,
-      height: 220,
+      height: 244,
       decoration: BoxDecoration(
         color: AppColors.gray50,
         borderRadius: AppRadius.border12,
@@ -215,7 +228,7 @@ class _PhotosGridState extends ConsumerState<PhotosGrid> {
   Widget _buildFilledSlot(UserPhoto photo, int idx, int totalPhotos, double width) {
     return Container(
       width: width,
-      height: 220,
+      height: 244,
       decoration: BoxDecoration(
         color: AppColors.white,
         borderRadius: AppRadius.border12,
@@ -382,48 +395,47 @@ class _PhotosGridState extends ConsumerState<PhotosGrid> {
     );
   }
 
-  Widget _buildEmptySlot(int idx, double width) {
+  Widget _buildAddSlot(double width, int remaining) {
     return GestureDetector(
-      onTap: () => _handleUpload(idx),
+      onTap: _handleAddPhotos,
       child: Container(
         width: width,
-        height: 220,
+        height: 244,
         decoration: BoxDecoration(
           color: AppColors.gray50,
           borderRadius: AppRadius.border12,
-          border: Border.all(
-            color: AppColors.gray200,
-            width: 2,
-            // dashed via custom painter below
-          ),
+          border: Border.all(color: AppColors.gray200, width: 2),
         ),
-        child: const Column(
+        child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _DashedBorder(),
-            Icon(LucideIcons.upload, size: 20, color: AppColors.gray400),
-            SizedBox(height: 6),
-            Text(
-              'Upload',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppColors.gray400,
+            Container(
+              width: 52,
+              height: 52,
+              decoration: const BoxDecoration(
+                color: AppColors.brandPink,
+                shape: BoxShape.circle,
               ),
+              child: const Icon(LucideIcons.plus,
+                  size: 26, color: AppColors.white),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Add Photos',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.gray700,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'up to $remaining more',
+              style: const TextStyle(fontSize: 11, color: AppColors.gray400),
             ),
           ],
         ),
       ),
     );
-  }
-}
-
-// Dashed border effect using a CustomPainter overlay
-class _DashedBorder extends StatelessWidget {
-  const _DashedBorder();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox.shrink();
   }
 }

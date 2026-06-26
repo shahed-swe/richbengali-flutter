@@ -1,4 +1,6 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
+// ignore: unnecessary_import
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +13,25 @@ import 'services/push_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // DEBUG-ONLY diagnostic: print the exact exception behind any ErrorWidget to
+  // the device log and show it as readable text. Release uses default handling.
+  if (kDebugMode) {
+    ErrorWidget.builder = (FlutterErrorDetails details) {
+      debugPrint('███ ERRORWIDGET ███ ${details.exceptionAsString()}');
+      debugPrint('███ STACK ███ ${details.stack}');
+      return Container(
+        color: Colors.black,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          details.exceptionAsString(),
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.yellowAccent, fontSize: 11),
+        ),
+      );
+    };
+  }
 
   // ---------------------------------------------------------------------------
   // Load environment variables first — everything else may depend on them.

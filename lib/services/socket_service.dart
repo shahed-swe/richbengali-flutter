@@ -8,6 +8,7 @@ import '../state/auth_provider.dart';
 import '../state/call_overlay_provider.dart';
 import '../state/conversations_provider.dart';
 import '../state/me_provider.dart';
+import '../state/messages_provider.dart';
 import '../state/notifications_provider.dart';
 import 'call_service.dart';
 import 'callkit_service.dart';
@@ -101,10 +102,21 @@ class SocketService {
     });
 
     // Chat events — invalidate providers
-    newSocket.on('message:new', (_) {
+    newSocket.on('message:new', (data) {
       try {
         ref.invalidate(conversationsProvider);
         ref.invalidate(notificationsProvider);
+        // Also refresh the open chat for the sender, if id is present.
+        final payload = _toMap(data);
+        final senderId = (payload['from'] ??
+                payload['sender_id'] ??
+                payload['senderId'] ??
+                '')
+            .toString()
+            .trim();
+        if (senderId.isNotEmpty) {
+          ref.invalidate(messagesProvider(senderId));
+        }
       } catch (_) {}
     });
 

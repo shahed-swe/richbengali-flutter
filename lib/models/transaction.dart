@@ -1,3 +1,5 @@
+import '../core/json_parse.dart';
+
 class Transaction {
   final String id;
   final String? peerName;
@@ -24,17 +26,8 @@ class Transaction {
           json['peer_name']?.toString() ??
           json['user_name']?.toString() ??
           json['name']?.toString(),
-      durationSeconds:
-          (json['duration_sec'] ?? json['duration_seconds'] ?? 0) is num
-              ? ((json['duration_sec'] ??
-                          json['duration_seconds'] ??
-                          0) as num)
-                      .toInt()
-              : 0,
-      amount:
-          (json['amount'] ?? 0) is num
-              ? ((json['amount'] ?? 0) as num).toDouble()
-              : 0.0,
+      durationSeconds: asInt(json['duration_sec'] ?? json['duration_seconds']),
+      amount: asDouble(json['amount']),
       type: (json['type'] ?? 'credit').toString(),
       createdAt: json['created_at']?.toString(),
     );

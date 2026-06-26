@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../core/json_parse.dart';
 import '../../models/user.dart';
 import '../../services/socket_service.dart';
 import '../../theme/theme.dart';
@@ -35,8 +36,7 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
             (payload['callEarnings'] ?? payload['earnings'] ?? '0.00')
                 .toString();
         if (payload['maleBalance'] != null) {
-          _liveMaleBalance =
-              (payload['maleBalance'] as num).toDouble();
+          _liveMaleBalance = asDoubleN(payload['maleBalance']);
         }
       });
     });

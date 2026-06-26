@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
@@ -119,11 +120,14 @@ class CallService {
   // Apply beauty / virtual background from callOverlayProvider
   // -------------------------------------------------------------------------
 
+  // Heavy beauty (virtual background + face shape) re-enabled — confirmed NOT
+  // the cause of the red video (red persisted with these off).
+  static const bool _enableHeavyBeauty = true;
+
   Future<void> _applyBeautyEffects() async {
     if (_engine == null) return;
     final overlay = _ref.read(callOverlayProvider);
     final smoothness = overlay.beautySmoothness;
-    final blurDegree = overlay.beautyBlurDegree;
     final slimFace = overlay.beautySlimFace;
     final bigEyes = overlay.beautyBigEyes;
 
@@ -144,33 +148,12 @@ class CallService {
       debugPrint('[Agora] setBeautyEffectOptions error: $e');
     }
 
-    // Virtual background blur
-    try {
-      if (blurDegree <= 0) {
-        await _engine!.enableVirtualBackground(
-          enabled: false,
-          backgroundSource:
-              const VirtualBackgroundSource(backgroundSourceType: BackgroundSourceType.backgroundNone),
-          segproperty: const SegmentationProperty(),
-        );
-      } else {
-        final degree = blurDegree < 33
-            ? BackgroundBlurDegree.blurDegreeLow
-            : blurDegree < 66
-                ? BackgroundBlurDegree.blurDegreeMedium
-                : BackgroundBlurDegree.blurDegreeHigh;
-        await _engine!.enableVirtualBackground(
-          enabled: true,
-          backgroundSource: VirtualBackgroundSource(
-            backgroundSourceType: BackgroundSourceType.backgroundBlur,
-            blurDegree: degree,
-          ),
-          segproperty: const SegmentationProperty(),
-        );
-      }
-    } catch (e) {
-      debugPrint('[Agora] enableVirtualBackground error: $e');
-    }
+    // Skip segmentation/face-shape effects — they render garbled red video on
+    // some devices. Re-enable via _enableHeavyBeauty once verified per-device.
+    if (!_enableHeavyBeauty) return;
+
+    // Virtual background — driven by bgMode, bgImagePath, bgColor
+    await applyVirtualBackground();
 
     // Face shape beauty
     try {
@@ -211,10 +194,91 @@ class CallService {
   }
 
   // -------------------------------------------------------------------------
+  // Apply virtual background from bgMode / bgImagePath / bgColor
+  // -------------------------------------------------------------------------
+
+  Future<void> applyVirtualBackground() async {
+    if (_engine == null) return;
+    final overlay = _ref.read(callOverlayProvider);
+
+    try {
+      switch (overlay.bgMode) {
+        case VirtualBgMode.none:
+          await _engine!.enableVirtualBackground(
+            enabled: false,
+            backgroundSource: const VirtualBackgroundSource(
+              backgroundSourceType: BackgroundSourceType.backgroundNone,
+            ),
+            segproperty: const SegmentationProperty(),
+          );
+
+        case VirtualBgMode.blurLight:
+          await _engine!.enableVirtualBackground(
+            enabled: true,
+            backgroundSource: const VirtualBackgroundSource(
+              backgroundSourceType: BackgroundSourceType.backgroundBlur,
+              blurDegree: BackgroundBlurDegree.blurDegreeMedium,
+            ),
+            segproperty: const SegmentationProperty(),
+          );
+
+        case VirtualBgMode.blurStrong:
+          await _engine!.enableVirtualBackground(
+            enabled: true,
+            backgroundSource: const VirtualBackgroundSource(
+              backgroundSourceType: BackgroundSourceType.backgroundBlur,
+              blurDegree: BackgroundBlurDegree.blurDegreeHigh,
+            ),
+            segproperty: const SegmentationProperty(),
+          );
+
+        case VirtualBgMode.image:
+          final path = overlay.bgImagePath;
+          if (path != null && path.isNotEmpty && File(path).existsSync()) {
+            await _engine!.enableVirtualBackground(
+              enabled: true,
+              backgroundSource: VirtualBackgroundSource(
+                backgroundSourceType: BackgroundSourceType.backgroundImg,
+                source: path,
+              ),
+              segproperty: const SegmentationProperty(),
+            );
+          } else {
+            // Image file gone — fall back to no background
+            debugPrint('[Agora] bgImagePath missing or deleted, disabling virtual background');
+            await _engine!.enableVirtualBackground(
+              enabled: false,
+              backgroundSource: const VirtualBackgroundSource(
+                backgroundSourceType: BackgroundSourceType.backgroundNone,
+              ),
+              segproperty: const SegmentationProperty(),
+            );
+          }
+
+        case VirtualBgMode.color:
+          await _engine!.enableVirtualBackground(
+            enabled: true,
+            backgroundSource: VirtualBackgroundSource(
+              backgroundSourceType: BackgroundSourceType.backgroundColor,
+              color: overlay.bgColor ?? 0x000000,
+            ),
+            segproperty: const SegmentationProperty(),
+          );
+      }
+    } catch (e) {
+      debugPrint('[Agora] enableVirtualBackground error (may be unsupported on this device): $e');
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Re-apply beauty after slider changes
   // -------------------------------------------------------------------------
 
   Future<void> reapplyBeauty() => _applyBeautyEffects();
+
+  /// Re-applies only the virtual background — called from the UI after
+  /// the user selects a new background tile.
+  Future<void> reapplyBackground() => applyVirtualBackground();
 
   // -------------------------------------------------------------------------
   // Join channel

@@ -1,9 +1,24 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/json_parse.dart';
 
 /// Storage key — mirrors Zustand persist name 'call-overlay-storage'
 const _kBeautyStorageKey = 'call-overlay-storage';
+
+// ---------------------------------------------------------------------------
+// Virtual background mode enum
+// ---------------------------------------------------------------------------
+
+/// Which virtual background is active.
+enum VirtualBgMode {
+  none,
+  blurLight,
+  blurStrong,
+  image,
+  color,
+}
 
 // ---------------------------------------------------------------------------
 // State — mirrors CallOverlayManager.ts
@@ -46,6 +61,10 @@ class CallOverlayState {
   final double beautyBlurDegree;
   final double beautySlimFace;
   final double beautyBigEyes;
+  // Virtual background — persisted
+  final VirtualBgMode bgMode;
+  final String? bgImagePath;
+  final int? bgColor;
 
   const CallOverlayState({
     this.activeCall,
@@ -60,6 +79,9 @@ class CallOverlayState {
     this.beautyBlurDegree = 75,
     this.beautySlimFace = 50,
     this.beautyBigEyes = 50,
+    this.bgMode = VirtualBgMode.blurStrong,
+    this.bgImagePath,
+    this.bgColor,
   });
 
   CallOverlayState copyWith({
@@ -75,11 +97,16 @@ class CallOverlayState {
     double? beautyBlurDegree,
     double? beautySlimFace,
     double? beautyBigEyes,
+    VirtualBgMode? bgMode,
+    String? bgImagePath,
+    int? bgColor,
     bool clearActiveCall = false,
     bool clearOtherUser = false,
     bool clearCallToken = false,
     bool clearCallType = false,
     bool clearCallState = false,
+    bool clearBgImagePath = false,
+    bool clearBgColor = false,
   }) {
     return CallOverlayState(
       activeCall: clearActiveCall ? null : (activeCall ?? this.activeCall),
@@ -94,6 +121,9 @@ class CallOverlayState {
       beautyBlurDegree: beautyBlurDegree ?? this.beautyBlurDegree,
       beautySlimFace: beautySlimFace ?? this.beautySlimFace,
       beautyBigEyes: beautyBigEyes ?? this.beautyBigEyes,
+      bgMode: bgMode ?? this.bgMode,
+      bgImagePath: clearBgImagePath ? null : (bgImagePath ?? this.bgImagePath),
+      bgColor: clearBgColor ? null : (bgColor ?? this.bgColor),
     );
   }
 }
@@ -115,11 +145,36 @@ class CallOverlayNotifier extends Notifier<CallOverlayState> {
       final raw = prefs.getString(_kBeautyStorageKey);
       if (raw != null) {
         final map = jsonDecode(raw) as Map<String, dynamic>;
+
+        // Restore bgMode by index — guard against out-of-range stored values
+        VirtualBgMode? restoredBgMode;
+        final bgModeIndex = asIntN(map['bgModeIndex']);
+        if (bgModeIndex != null &&
+            bgModeIndex >= 0 &&
+            bgModeIndex < VirtualBgMode.values.length) {
+          restoredBgMode = VirtualBgMode.values[bgModeIndex];
+        }
+
+        // Restore bgImagePath only if the file actually still exists
+        String? restoredBgImagePath;
+        final storedPath = map['bgImagePath'] as String?;
+        if (storedPath != null && storedPath.isNotEmpty) {
+          if (File(storedPath).existsSync()) {
+            restoredBgImagePath = storedPath;
+          }
+          // If file is gone (cache cleared), silently fall back to blurStrong
+        }
+
+        final restoredBgColor = asIntN(map['bgColor']);
+
         state = state.copyWith(
-          beautySmoothness: (map['beautySmoothness'] as num?)?.toDouble(),
-          beautyBlurDegree: (map['beautyBlurDegree'] as num?)?.toDouble(),
-          beautySlimFace: (map['beautySlimFace'] as num?)?.toDouble(),
-          beautyBigEyes: (map['beautyBigEyes'] as num?)?.toDouble(),
+          beautySmoothness: asDoubleN(map['beautySmoothness']),
+          beautyBlurDegree: asDoubleN(map['beautyBlurDegree']),
+          beautySlimFace: asDoubleN(map['beautySlimFace']),
+          beautyBigEyes: asDoubleN(map['beautyBigEyes']),
+          bgMode: restoredBgMode,
+          bgImagePath: restoredBgImagePath,
+          bgColor: restoredBgColor,
         );
       }
     } catch (_) {}
@@ -135,6 +190,9 @@ class CallOverlayNotifier extends Notifier<CallOverlayState> {
           'beautyBlurDegree': state.beautyBlurDegree,
           'beautySlimFace': state.beautySlimFace,
           'beautyBigEyes': state.beautyBigEyes,
+          'bgModeIndex': state.bgMode.index,
+          'bgImagePath': state.bgImagePath,
+          'bgColor': state.bgColor,
         }),
       );
     } catch (_) {}
@@ -220,6 +278,27 @@ class CallOverlayNotifier extends Notifier<CallOverlayState> {
 
   void setBeautyBigEyes(double val) {
     state = state.copyWith(beautyBigEyes: val);
+    _persistBeautySettings();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Virtual background setters
+  // ---------------------------------------------------------------------------
+
+  void setBgMode(VirtualBgMode mode) {
+    state = state.copyWith(bgMode: mode);
+    _persistBeautySettings();
+  }
+
+  /// Sets bgMode = image and stores the file path picked from the gallery.
+  void setBgImage(String path) {
+    state = state.copyWith(bgMode: VirtualBgMode.image, bgImagePath: path);
+    _persistBeautySettings();
+  }
+
+  /// Sets bgMode = color and stores the 0xRRGGBB colour value.
+  void setBgColor(int color) {
+    state = state.copyWith(bgMode: VirtualBgMode.color, bgColor: color);
     _persistBeautySettings();
   }
 }

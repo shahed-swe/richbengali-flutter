@@ -73,6 +73,13 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="com.richbengali.app.chat" />
 
+        <!-- Disable Impeller: the Agora video PlatformView renders as solid
+             red/garbled color blocks under the Impeller/Vulkan backend on
+             Android. The Skia renderer composites the video surface correctly. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -14,6 +14,7 @@ import '../../state/call_overlay_provider.dart';
 import '../../state/me_provider.dart';
 import '../../state/messages_provider.dart';
 import '../../state/notifications_provider.dart';
+import '../../data/calls_repository.dart';
 import '../../data/messages_repository.dart';
 import '../../data/users_repository.dart';
 import '../../services/socket_service.dart';
@@ -222,6 +223,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       callType: callType,
       callerName: me?.name ?? 'User',
       callerAvatar: me?.displayPhotoUrl,
+    );
+
+    // Dispatch FCM push to wake offline callee (fire-and-forget, non-fatal).
+    ref.read(callsRepositoryProvider).dispatchCallPush(
+      receiverId: _otherUserId,
+      callId: sessionId,
+      isVideo: callType == 'video',
     );
 
     // Update call overlay state

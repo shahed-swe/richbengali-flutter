@@ -9,7 +9,8 @@ class NotificationsNotifier extends AsyncNotifier<List<NotificationItem>> {
   }
 
   Future<void> refresh() async {
-    state = const AsyncLoading();
+    // Don't reset to AsyncLoading — keep the current items visible while
+    // refetching so the bell dropdown never flashes empty mid-open.
     state = await AsyncValue.guard(
       () => ref.read(notificationsRepositoryProvider).getNotifications(),
     );

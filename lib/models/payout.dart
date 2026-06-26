@@ -1,3 +1,5 @@
+import '../core/json_parse.dart';
+
 class Payout {
   final String id;
   final String? provider;
@@ -21,10 +23,7 @@ class Payout {
           json['method']?.toString() ??
           json['type']?.toString(),
       status: (json['status'] ?? 'pending').toString(),
-      amountUsd:
-          (json['amount_usd'] ?? json['amount'] ?? 0) is num
-              ? ((json['amount_usd'] ?? json['amount'] ?? 0) as num).toDouble()
-              : 0.0,
+      amountUsd: asDouble(json['amount_usd'] ?? json['amount']),
       createdAt: json['created_at']?.toString(),
     );
   }

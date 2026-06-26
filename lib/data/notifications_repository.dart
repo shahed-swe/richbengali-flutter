@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/dio_client.dart';
+import '../core/json_parse.dart';
 import '../models/notification.dart';
 
 class NotificationsRepository {
@@ -25,7 +26,7 @@ class NotificationsRepository {
         : (data is Map
             ? data
             : <String, dynamic>{}) as Map<String, dynamic>;
-    return (map['count'] as num?)?.toInt() ?? 0;
+    return asInt(map['count']);
   }
 
   Future<void> markRead(String id) async {

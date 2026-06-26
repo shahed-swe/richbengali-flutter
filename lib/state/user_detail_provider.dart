@@ -3,6 +3,7 @@ import '../models/user.dart';
 import '../models/relation_status.dart';
 import '../data/users_repository.dart';
 import '../data/relations_repository.dart';
+import 'favorites_provider.dart';
 
 /// Fetches a user profile by id
 final userDetailProvider =
@@ -18,6 +19,8 @@ class RelationStatusNotifier extends AsyncNotifier<RelationStatus> {
 
   @override
   Future<RelationStatus> build() async {
+    // Keep alive so liked/favorited state survives scrolling off-screen.
+    ref.keepAlive();
     return ref.read(relationsRepositoryProvider).getRelationStatus(userId);
   }
 
@@ -46,8 +49,10 @@ class RelationStatusNotifier extends AsyncNotifier<RelationStatus> {
     try {
       if (current.isFavorited) {
         await ref.read(relationsRepositoryProvider).unfavorite(userId);
+        ref.invalidate(favoritesProvider);
       } else {
         await ref.read(relationsRepositoryProvider).favorite(userId);
+        ref.invalidate(favoritesProvider);
       }
     } catch (_) {
       // Revert on error

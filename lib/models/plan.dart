@@ -1,3 +1,5 @@
+import '../core/json_parse.dart';
+
 class Plan {
   final String priceId;
   final String label;
@@ -27,12 +29,8 @@ class Plan {
     return Plan(
       priceId: (json['stripe_price_id'] ?? json['price_id'] ?? '').toString(),
       label: (json['label'] ?? json['name'] ?? '').toString(),
-      amountUsd:
-          (json['amount_usd'] ?? json['price'] ?? json['amount'] ?? 0).toDouble(),
-      callMinutes:
-          (json['call_minutes'] ?? json['minutes'] ?? 0) is num
-              ? ((json['call_minutes'] ?? json['minutes'] ?? 0) as num).toInt()
-              : 0,
+      amountUsd: asDouble(json['amount_usd'] ?? json['price'] ?? json['amount']),
+      callMinutes: asInt(json['call_minutes'] ?? json['minutes']),
       features: features,
       isCurrent: json['is_current'] == true || json['current'] == true,
     );

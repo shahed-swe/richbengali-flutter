@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -89,6 +90,9 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   // -------------------------------------------------------------------------
 
   Future<void> _enableCaptureProtection() async {
+    // Debug builds: never block screenshots/recording so we can capture and
+    // inspect the call screen while testing. Protection is release-only.
+    if (!kReleaseMode) return;
     if (!Platform.isAndroid && !Platform.isIOS) return;
     try {
       // Prevent screenshots and screen recording (Android + iOS).
@@ -260,9 +264,14 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
       return const SizedBox.shrink();
     }
 
-    return Material(
-      color: Colors.transparent,
-      child: _buildCallUI(context, overlay),
+    // Fill the entire screen — without this, as a non-positioned Stack child
+    // the call UI shrinks to its content width (~the avatar) and the screen
+    // behind it shows through. SizedBox.expand forces full width + height.
+    return SizedBox.expand(
+      child: Material(
+        color: AppColors.callDarkBg,
+        child: _buildCallUI(context, overlay),
+      ),
     );
   }
 
@@ -604,6 +613,7 @@ class _OngoingUI extends ConsumerWidget {
                 canvas: VideoCanvas(uid: remoteUid),
                 connection:
                     RtcConnection(channelId: overlay.activeCall!.sessionId),
+                useAndroidSurfaceView: true,
               ),
             ),
           )
@@ -719,6 +729,7 @@ class _OngoingUI extends ConsumerWidget {
                             controller: VideoViewController(
                               rtcEngine: callService.engine!,
                               canvas: const VideoCanvas(uid: 0),
+                              useAndroidSurfaceView: true,
                             ),
                           ),
                   ),

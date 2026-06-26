@@ -18,9 +18,9 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final topPad = MediaQuery.of(context).padding.top;
     return Container(
-      color: AppColors.white,
       padding: EdgeInsets.only(top: topPad + 10, bottom: 8),
       decoration: const BoxDecoration(
+        color: AppColors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFf3f4f6))),
       ),
       child: Row(
@@ -179,14 +179,10 @@ class _NotificationBell extends ConsumerStatefulWidget {
 
 class _NotificationBellState extends ConsumerState<_NotificationBell> {
   void _showNotificationsMenu(BuildContext context) {
-    final notifications =
-        ref.read(notificationsProvider).asData?.value ?? [];
-
     showDialog(
       context: context,
       barrierColor: Colors.transparent,
       builder: (ctx) => _NotificationsDialog(
-        notifications: notifications,
         onMarkAll: () {
           ref.read(notificationsProvider.notifier).markAllRead();
         },
@@ -256,22 +252,23 @@ class _NotificationBellState extends ConsumerState<_NotificationBell> {
   }
 }
 
-class _NotificationsDialog extends StatelessWidget {
+class _NotificationsDialog extends ConsumerWidget {
   const _NotificationsDialog({
-    required this.notifications,
     required this.onMarkAll,
     required this.onMarkRead,
     required this.onNotificationTap,
   });
 
-  final List<NotificationItem> notifications;
   final VoidCallback onMarkAll;
   final void Function(String id) onMarkRead;
   final void Function(NotificationItem n, BuildContext ctx) onNotificationTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final screenWidth = MediaQuery.of(context).size.width;
+    // Watch the provider live so the list updates the moment it (re)loads —
+    // fixes the "badge shows 2 but dropdown empty" snapshot bug.
+    final notifications = ref.watch(notificationsProvider).asData?.value ?? [];
     final sorted = [...notifications]
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 

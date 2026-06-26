@@ -1,3 +1,5 @@
+import '../core/json_parse.dart';
+
 class RelationStatus {
   final String targetId;
   final bool isLiked;
@@ -34,8 +36,8 @@ class RelationStatus {
       likedMe: json['liked_me'] == true,
       favoritedMe: json['favorited_me'] == true,
       superlikedMe: json['superliked_me'] == true,
-      visited: json['visited'] as bool?,
-      visitedMe: json['visited_me'] as bool?,
+      visited: json['visited'] == null ? null : asBool(json['visited']),
+      visitedMe: json['visited_me'] == null ? null : asBool(json['visited_me']),
       lastVisitAt: json['last_visit_at']?.toString(),
       lastVisitedMeAt: json['last_visited_me_at']?.toString(),
     );

@@ -7,6 +7,7 @@ import '../../state/user_detail_provider.dart';
 import '../../state/favorites_provider.dart';
 import '../../models/ref_option.dart';
 import '../../data/refs_repository.dart';
+import '../../data/relations_repository.dart';
 import '../../widgets/image_viewer.dart';
 import '../../theme/theme.dart';
 
@@ -27,6 +28,25 @@ class UserDetailScreen extends ConsumerStatefulWidget {
 
 class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
   String? _viewedImage;
+  bool _visitRecorded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recordVisit());
+  }
+
+  Future<void> _recordVisit() async {
+    if (_visitRecorded) return;
+    _visitRecorded = true;
+    try {
+      await ref
+          .read(relationsRepositoryProvider)
+          .recordVisit(widget.userId);
+    } catch (_) {
+      // Non-fatal — a failed visit-record must not break the screen.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
