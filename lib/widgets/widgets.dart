@@ -1,6 +1,7 @@
 export 'background_gradient.dart';
 export 'animated_logo.dart';
 export 'app_header.dart';
+export 'city_autocomplete_field.dart';
 export 'empty_state.dart';
 export 'skeleton.dart';
 export 'gradient_button.dart';

@@ -12,6 +12,7 @@ import '../../state/auth_provider.dart';
 import '../../state/me_provider.dart';
 import '../../theme/theme.dart';
 import '../../widgets/animated_logo.dart';
+import '../../widgets/city_autocomplete_field.dart';
 import '../../widgets/image_viewer.dart';
 import '../../widgets/me/extended_fields.dart';
 import '../../widgets/me/photos_grid.dart';
@@ -468,11 +469,12 @@ class _MeScreenState extends ConsumerState<MeScreen> {
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
-          _FormField(
+          CityAutocompleteField(
+            style: CityAutocompleteFieldStyle.outlined,
             label: 'City',
-            controller: _cityCtrl,
-            hasError: _hasTags(_cityCtrl.text),
-            onChanged: (_) => setState(() {}),
+            initialValue: _cityCtrl.text,
+            errorText: _hasTags(_cityCtrl.text) ? 'HTML/Script tags not allowed' : null,
+            onChanged: (city) => setState(() => _cityCtrl.text = city),
           ),
         ],
       ),

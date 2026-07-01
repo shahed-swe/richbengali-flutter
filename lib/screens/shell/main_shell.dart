@@ -3,13 +3,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../services/socket_service.dart';
+import '../../state/active_chat_provider.dart';
 import '../../state/auth_provider.dart';
 import '../../widgets/widgets.dart';
+
+/// Branch index for the Chats tab (see StatefulShellRoute branches in
+/// app_router.dart: 0=Home, 1=Favorites, 2=Chats, 3=Plans, 4=Me).
+const int _chatsBranchIndex = 2;
 
 class MainShell extends ConsumerWidget {
   final StatefulNavigationShell navigationShell;
 
   const MainShell({super.key, required this.navigationShell});
+
+  /// Switching away from the Chats tab means whatever chat was visible is no
+  /// longer visible — clear the client-authoritative "viewing this chat" flag
+  /// and tell the backend so its activeByUser tracking matches reality.
+  /// Without this, IndexedStack keeps the chat screen alive (no dispose), so
+  /// the backend would keep suppressing notification:new for that peer even
+  /// though the user switched to Home/Favorites/Plans/Me.
+  void _handleBranchChange(WidgetRef ref, int newBranchIndex) {
+    if (newBranchIndex != _chatsBranchIndex) {
+      final peerId = ref.read(currentChatPeerIdProvider);
+      if (peerId != null) {
+        ref.read(socketServiceProvider).setInactiveChat(peerId);
+        ref.read(currentChatPeerIdProvider.notifier).clear();
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -56,10 +78,12 @@ class MainShell extends ConsumerWidget {
             child: BottomNavigationBar(
               currentIndex: currentVisibleIndex,
               onTap: (visibleIndex) {
+                final newBranchIndex = tabs[visibleIndex].branchIndex;
+                _handleBranchChange(ref, newBranchIndex);
                 navigationShell.goBranch(
-                  tabs[visibleIndex].branchIndex,
+                  newBranchIndex,
                   initialLocation:
-                      tabs[visibleIndex].branchIndex == navigationShell.currentIndex,
+                      newBranchIndex == navigationShell.currentIndex,
                 );
               },
               type: BottomNavigationBarType.fixed,

@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../models/message.dart';
 import '../../models/user.dart';
+import '../../state/active_chat_provider.dart';
 import '../../state/auth_provider.dart';
 import '../../state/call_overlay_provider.dart';
 import '../../state/me_provider.dart';
@@ -33,7 +34,7 @@ class ChatDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isSending = false;
@@ -51,17 +52,24 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
 
   String get _otherUserId => widget.chatId;
 
+  // Whether this screen is the currently-visible route (vs. backgrounded via
+  // app lifecycle pause). Used to avoid double-marking active/inactive.
+  bool _isVisible = true;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _textController.addListener(() => setState(() {}));
     // Defer socket setup + notification marking until after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) => _setupSocket());
     WidgetsBinding.instance.addPostFrameCallback((_) => _markNotificationsRead());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _markChatVisible());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _textController.dispose();
     _scrollController.dispose();
     _chatMessageSub?.cancel();
@@ -70,14 +78,59 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     for (final c in _animControllers.values) {
       c.dispose();
     }
+    _markChatHidden();
     _teardownSocket();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Covers the case where the app is backgrounded/foregrounded while this
+    // chat screen is the visible route — the backend must be told chat:active
+    // / chat:inactive to match reality (e.g. a push arrives while backgrounded
+    // shouldn't be suppressed as "user is looking at it").
+    if (state == AppLifecycleState.resumed) {
+      if (_isVisible) _markChatVisible();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      if (_isVisible) _markChatHidden(keepVisibleFlag: true);
+    }
+  }
+
+  /// Marks this chat as the one the user is currently viewing — updates the
+  /// client-authoritative [currentChatPeerIdProvider] and tells the backend
+  /// via chat:active so its activeByUser tracking (used to gate
+  /// notification:new) matches reality.
+  void _markChatVisible() {
+    _isVisible = true;
+    try {
+      ref.read(currentChatPeerIdProvider.notifier).set(_otherUserId);
+      ref.read(socketServiceProvider).setActiveChat(_otherUserId);
+    } catch (_) {}
+  }
+
+  /// Marks this chat as no longer visible (pop, tab-switch, or app
+  /// backgrounded). [keepVisibleFlag] is used from the lifecycle callback so
+  /// we know to re-mark active on resume without needing another signal.
+  void _markChatHidden({bool keepVisibleFlag = false}) {
+    if (!keepVisibleFlag) _isVisible = false;
+    try {
+      // Only clear the global "currently viewing" pointer if it's still us —
+      // avoids clobbering a different chat that may have become active.
+      if (ref.read(currentChatPeerIdProvider) == _otherUserId) {
+        ref.read(currentChatPeerIdProvider.notifier).clear();
+      }
+      ref.read(socketServiceProvider).setInactiveChat(_otherUserId);
+    } catch (_) {}
   }
 
   void _setupSocket() {
     final socket = ref.read(socketServiceProvider);
     socket.joinChat(_otherUserId);
-    socket.setActiveChat(_otherUserId);
+    // Note: chat:active is emitted by _markChatVisible (called separately via
+    // postFrameCallback) rather than here, to keep a single source of truth
+    // for the visible/hidden signal shared with pop/tab-switch/lifecycle.
 
     final myId = ref.read(authProvider).user?.id ?? '';
 
@@ -108,7 +161,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     try {
       final socket = ref.read(socketServiceProvider);
       socket.leaveChat(_otherUserId);
-      socket.setInactiveChat(_otherUserId);
+      // Note: chat:inactive is emitted by _markChatHidden (called from
+      // dispose separately) rather than here.
     } catch (_) {}
   }
 
@@ -367,81 +421,95 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             ),
           ),
           const SizedBox(width: 8),
-          // Avatar
-          ClipOval(
-            child: otherUser?.displayPhotoUrl != null
-                ? CachedNetworkImage(
-                    imageUrl: otherUser!.displayPhotoUrl!,
-                    width: 40,
-                    height: 40,
-                    fit: BoxFit.cover,
-                    placeholder: (_, u) => _avatarPlaceholder(otherUser.name),
-                    errorWidget: (_, u, e) =>
-                        _avatarPlaceholder(otherUser.name),
-                  )
-                : _avatarPlaceholder(otherUser?.name),
-          ),
-          const SizedBox(width: 10),
-          // Name + status
+          // Avatar + name — tappable, opens the peer's profile within the
+          // Chats tab (mirrors home_screen's tap-to-profile behavior).
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  otherUser?.name ?? 'Chat',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF111827),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: otherUser != null
+                  ? () => context.push('/chats/user/${otherUser.id}')
+                  : null,
+              child: Row(
+                children: [
+                  ClipOval(
+                    child: otherUser?.displayPhotoUrl != null
+                        ? CachedNetworkImage(
+                            imageUrl: otherUser!.displayPhotoUrl!,
+                            width: 40,
+                            height: 40,
+                            fit: BoxFit.cover,
+                            placeholder: (_, u) =>
+                                _avatarPlaceholder(otherUser.name),
+                            errorWidget: (_, u, e) =>
+                                _avatarPlaceholder(otherUser.name),
+                          )
+                        : _avatarPlaceholder(otherUser?.name),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (isInCall)
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        margin: const EdgeInsets.only(right: 4),
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color(0xFFEF4444),
+                  const SizedBox(width: 10),
+                  // Name + status
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          otherUser?.name ?? 'Chat',
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF111827),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      const Text(
-                        'Busy in a Call',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFFEF4444),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  )
-                else if (isOnline)
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        margin: const EdgeInsets.only(right: 4),
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color(0xFF22C55E),
-                        ),
-                      ),
-                      const Text(
-                        'Online',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF22C55E),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                        if (isInCall)
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Color(0xFFEF4444),
+                                ),
+                              ),
+                              const Text(
+                                'Busy in a Call',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFFEF4444),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          )
+                        else if (isOnline)
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Color(0xFF22C55E),
+                                ),
+                              ),
+                              const Text(
+                                'Online',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF22C55E),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
           // Call buttons

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../core/env.dart';
 import '../core/jwt.dart';
+import '../state/active_chat_provider.dart';
 import '../state/auth_provider.dart';
 import '../state/call_overlay_provider.dart';
 import '../state/conversations_provider.dart';
@@ -24,6 +25,15 @@ class SocketService {
 
   io.Socket? get socket => _socket;
   bool get connected => _connected;
+
+  // Dedupe: the backend notifies an incoming message via EITHER
+  // `notification:new` (chat never opened / receiver not in room) OR only
+  // `chat:message` (receiver previously opened the chat so is still joined to
+  // the room, but is now on a different tab/screen — see BUG A). Both paths
+  // can fire for the same message once the client tracks visibility itself,
+  // so we remember the last message id we already showed a banner for and
+  // skip the second path for that same id.
+  String? _lastNotifiedMessageId;
 
   // Stream controllers for typed events consumed by UI
   final _statusChangeController =
@@ -130,6 +140,7 @@ class SocketService {
       final type = (payload['type'] ?? '').toString().toLowerCase();
       final actorId =
           (payload['actor_id'] ?? payload['actorId'] ?? '').toString();
+      final messageId = (payload['id'] ?? '').toString();
 
       // Derive the sender's name from the current conversation list (before it
       // refreshes) for a nicer banner title.
@@ -157,6 +168,9 @@ class SocketService {
       // alerted while on any screen (FCM push covers the backgrounded case once
       // google-services.json is added).
       if (type == 'message') {
+        // Record dedupe id BEFORE showing, so a same-id chat:message that
+        // arrives right after (same socket tick) doesn't double-banner.
+        if (messageId.isNotEmpty) _lastNotifiedMessageId = messageId;
         LocalNotificationsService.showChatNotification(
           title: (senderName != null && senderName.isNotEmpty)
               ? senderName
@@ -182,13 +196,68 @@ class SocketService {
       }
     });
 
-    // Chat room events — broadcast to per-screen listeners
+    // Chat room events — broadcast to per-screen listeners, AND (BUG A fix)
+    // decide here — independent of the backend's activeByUser tracking —
+    // whether the user is actually looking at this chat right now. The
+    // backend only suppresses notification:new when it *thinks* the receiver
+    // is active in the chat (via chat:active/chat:inactive), but with
+    // go_router's IndexedStack the chat screen is never disposed on a tab
+    // switch, so that tracking can go stale. currentChatPeerIdProvider is the
+    // client's own source of truth for "visible right now" and is kept in
+    // sync across pop / tab-switch / app-background (see
+    // active_chat_provider.dart, chat_detail_screen.dart, main_shell.dart).
     newSocket.on('chat:message', (data) {
-      if (data is Map<String, dynamic>) {
-        _chatMessageController.add(data);
-      } else if (data is Map) {
-        _chatMessageController.add(Map<String, dynamic>.from(data));
+      final payload = _toMap(data);
+      if (payload.isNotEmpty) {
+        _chatMessageController.add(payload);
       }
+
+      try {
+        final messageId = (payload['id'] ?? '').toString();
+        final senderId = (payload['sender_id'] ??
+                payload['senderId'] ??
+                payload['from'] ??
+                '')
+            .toString()
+            .trim();
+        final myId = ref.read(authProvider).user?.id ?? '';
+        final currentChatPeerId = ref.read(currentChatPeerIdProvider);
+
+        final isFromOther = senderId.isNotEmpty && senderId != myId;
+        final isViewingThatChat =
+            currentChatPeerId != null && currentChatPeerId == senderId;
+        final alreadyNotified =
+            messageId.isNotEmpty && messageId == _lastNotifiedMessageId;
+
+        if (isFromOther && !isViewingThatChat && !alreadyNotified) {
+          if (messageId.isNotEmpty) _lastNotifiedMessageId = messageId;
+
+          // Derive the sender's name BEFORE invalidating, same as the
+          // notification:new handler above.
+          String? senderName;
+          try {
+            final convs = ref.read(conversationsProvider).asData?.value ?? [];
+            for (final c in convs) {
+              if (c.otherUser.id == senderId) {
+                senderName = c.otherUser.name;
+                break;
+              }
+            }
+          } catch (_) {}
+
+          ref.invalidate(conversationsProvider);
+          ref.invalidate(notificationsProvider);
+
+          final content = (payload['content'] ?? '').toString();
+          LocalNotificationsService.showChatNotification(
+            title: (senderName != null && senderName.isNotEmpty)
+                ? senderName
+                : 'New message',
+            body: content.isNotEmpty ? content : 'You received a new message',
+            payload: '/chats/$senderId',
+          );
+        }
+      } catch (_) {}
     });
 
     newSocket.on('chat:message_deleted', (data) {

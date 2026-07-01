@@ -257,12 +257,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                               ],
                             ),
                             const SizedBox(height: 12),
-                            _InputField(
-                              controller: _cityCtrl,
+                            CityAutocompleteField(
+                              initialValue: _cityCtrl.text,
+                              onChanged: (city) => _cityCtrl.text = city,
                               label: 'City',
-                              placeholder: 'Dhaka',
-                              prefixIcon: LucideIcons.mapPin,
-                              error: _errors['city'],
+                              hint: 'Dhaka',
+                              errorText: _errors['city'],
                             ),
                             const SizedBox(height: 12),
 
