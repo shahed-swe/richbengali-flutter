@@ -51,7 +51,6 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
   // Track previous callState to detect engine-start transitions
   String? _prevCallState;
-  bool _engineInitStarted = false;
 
   @override
   void initState() {
@@ -158,12 +157,20 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
   // -------------------------------------------------------------------------
   // Engine init (permissions + Agora setup)
+  // Uses a Future stored in _engineInitFuture so that a second caller that
+  // arrives while the first is still awaiting can simply await the same
+  // work rather than returning immediately (which would leave _engine null).
   // -------------------------------------------------------------------------
 
-  Future<void> _initEngine(bool isVideo) async {
-    if (_engineInitStarted) return;
-    _engineInitStarted = true;
+  Future<void>? _engineInitFuture;
 
+  Future<void> _initEngine(bool isVideo) {
+    if (_engineInitFuture != null) return _engineInitFuture!;
+    _engineInitFuture = _doInitEngine(isVideo);
+    return _engineInitFuture!;
+  }
+
+  Future<void> _doInitEngine(bool isVideo) async {
     // Request permissions
     final permissions = [Permission.microphone];
     if (isVideo) permissions.add(Permission.camera);
@@ -175,10 +182,19 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
   // -------------------------------------------------------------------------
   // Join channel (called when callState transitions to 'ongoing')
+  // Ensures the engine is fully initialised before joining so that the
+  // caller-side transition outgoing → ongoing always reaches joinChannel
+  // even if _initEngine() hadn't finished when call:accept arrived.
   // -------------------------------------------------------------------------
 
   Future<void> _joinChannel(String sessionId, bool isVideo, bool isMuted) async {
+    // If the engine hasn't been initialised yet (e.g. call:accept arrived
+    // before _initEngine finished), await the in-flight init future so we
+    // block until CallService.initEngine completes before calling joinChannel.
     final callService = ref.read(callServiceProvider);
+    if (callService.engine == null) {
+      await _initEngine(isVideo);
+    }
     await callService.joinChannel(
       sessionId: sessionId,
       isVideo: isVideo,
@@ -207,7 +223,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
     await ref.read(callServiceProvider).leaveAndRelease();
     ref.read(callOverlayProvider.notifier).clearCall();
-    _engineInitStarted = false;
+    _engineInitFuture = null;
     _timerTick?.cancel();
     WakelockPlus.disable().catchError((_) {});
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -216,11 +232,12 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   Future<void> _rejectCall() async {
     final overlay = ref.read(callOverlayProvider);
     if (overlay.activeCall == null) return;
-    ref
-        .read(socketServiceProvider)
-        .rejectCall(callId: overlay.activeCall!.sessionId);
+    ref.read(socketServiceProvider).rejectCall(
+          callId: overlay.activeCall!.sessionId,
+          callerId: overlay.otherUser?.id ?? '',
+        );
     ref.read(callOverlayProvider.notifier).clearCall();
-    _engineInitStarted = false;
+    _engineInitFuture = null;
   }
 
   Future<void> _answerCall() async {
@@ -229,8 +246,9 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
     final socket = ref.read(socketServiceProvider);
     final callId = overlay.activeCall!.sessionId;
 
-    // Accept and set state to ongoing
-    socket.acceptCall(callId: callId);
+    // Accept and set state to ongoing. callerId = the caller (our otherUser),
+    // required so the backend can route call:accept back to them.
+    socket.acceptCall(callId: callId, callerId: overlay.otherUser?.id ?? '');
     ref.read(callOverlayProvider.notifier).setCallState('ongoing');
 
     // Init engine
@@ -248,7 +266,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
     // No active call â€” show nothing
     if (overlay.activeCall == null) {
-      _engineInitStarted = false;
+      _engineInitFuture = null;
       return const SizedBox.shrink();
     }
 
@@ -299,7 +317,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
     } else if (callState == null) {
       // Call ended — remove capture protection.
       _disableCaptureProtection();
-      _engineInitStarted = false;
+      _engineInitFuture = null;
       _timerTick?.cancel();
       _durationSeconds = 0;
       WakelockPlus.disable().catchError((_) {});

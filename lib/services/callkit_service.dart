@@ -235,9 +235,10 @@ class CallkitService {
 
       final socketService = _ref.read(socketServiceProvider);
 
-      // Emit accept + start to server
-      socketService.acceptCall(callId: callId);
+      // Emit accept + start to server. callerId = the other party (the caller),
+      // required so the backend routes call:accept back to them.
       final otherUserId = overlay.otherUser?.id ?? '';
+      socketService.acceptCall(callId: callId, callerId: otherUserId);
       socketService.startCall(callId: callId, otherUserId: otherUserId);
 
       // Transition overlay to ongoing
@@ -271,7 +272,10 @@ class CallkitService {
 
       // Emit reject if still incoming; end if already ongoing
       if (overlay.callState == 'incoming') {
-        socketService.rejectCall(callId: callId);
+        socketService.rejectCall(
+          callId: callId,
+          callerId: overlay.otherUser?.id ?? '',
+        );
       } else if (overlay.activeCall != null) {
         socketService.endCall(callId: callId);
       }
@@ -305,7 +309,10 @@ class CallkitService {
       debugPrint('[CallKit] processPendingCall: $callId');
 
       final socketService = _ref.read(socketServiceProvider);
-      socketService.acceptCall(callId: callId);
+      // Cold-start: overlay was cleared so we don't have the caller's id here.
+      // TODO: persist callerId with the pending call so accept can be routed
+      // after a true cold start (only matters once VoIP/FCM push is live).
+      socketService.acceptCall(callId: callId, callerId: '');
       socketService.startCall(callId: callId, otherUserId: '');
 
       // Set minimal ongoing state so the call screen appears.

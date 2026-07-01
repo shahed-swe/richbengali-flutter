@@ -4,6 +4,7 @@ import '../models/relation_status.dart';
 import '../data/users_repository.dart';
 import '../data/relations_repository.dart';
 import 'favorites_provider.dart';
+import 'users_provider.dart';
 
 /// Fetches a user profile by id
 final userDetailProvider =
@@ -49,11 +50,18 @@ class RelationStatusNotifier extends AsyncNotifier<RelationStatus> {
     try {
       if (current.isFavorited) {
         await ref.read(relationsRepositoryProvider).unfavorite(userId);
-        ref.invalidate(favoritesProvider);
+        // Un-favorited: allow the user back into the Home discover grid.
+        ref.read(homeHiddenUsersProvider.notifier).unhide(userId);
       } else {
         await ref.read(relationsRepositoryProvider).favorite(userId);
-        ref.invalidate(favoritesProvider);
+        // Favorited: remove from Home immediately (backend also excludes them
+        // from the next /users fetch).
+        ref.read(homeHiddenUsersProvider.notifier).hide(userId);
       }
+      ref.invalidate(favoritesProvider);
+      // Also call refresh() to ensure the provider refetches even if keepAlive
+      // prevents the invalidation from triggering a rebuild on its own.
+      ref.read(favoritesProvider.notifier).refresh();
     } catch (_) {
       // Revert on error
       state = AsyncData(current);

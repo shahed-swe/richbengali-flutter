@@ -90,8 +90,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final errs = _validateCommon();
 
     if (_tab == 'email') {
-      final emailOk = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(_emailCtrl.text.trim());
-      if (!emailOk) errs['email'] = 'Valid email required';
+      final emailOk = RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$').hasMatch(_emailCtrl.text.trim());
+      if (_emailCtrl.text.trim().isEmpty) {
+        errs['email'] = 'Email is required';
+      } else if (!emailOk) {
+        errs['email'] = 'Enter a valid email address';
+      }
       if (_passwordCtrl.text.length < 8) errs['password'] = 'Min 8 chars required';
     } else {
       if (!_isValidE164(_phoneCtrl.text)) errs['phone'] = 'Format: +880...';

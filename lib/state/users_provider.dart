@@ -68,3 +68,20 @@ final usersProvider =
         maxAge: filters.maxAge,
       );
 });
+
+/// User ids to hide from the Home discover grid immediately after favoriting
+/// (before the next backend fetch, which already excludes favorites via the
+/// `excludeFavorites` rule). Un-hidden on unfavorite so the user reappears.
+class HomeHiddenUsersNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => <String>{};
+
+  void hide(String id) => state = {...state, id};
+  void unhide(String id) => state = {...state}..remove(id);
+  void clear() => state = <String>{};
+}
+
+final homeHiddenUsersProvider =
+    NotifierProvider<HomeHiddenUsersNotifier, Set<String>>(
+  HomeHiddenUsersNotifier.new,
+);

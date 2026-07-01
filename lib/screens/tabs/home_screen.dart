@@ -11,6 +11,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final filters = ref.watch(userFiltersProvider);
     final usersAsync = ref.watch(usersProvider(filters));
+    final hidden = ref.watch(homeHiddenUsersProvider);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -57,12 +58,19 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
               data: (users) {
+                // Hide just-favorited users for an instant Home removal. The
+                // backend also excludes favorites from the next fetch, so this
+                // self-heals on refresh.
+                final visible = users
+                    .where((u) => !hidden.contains(u.id.toString()))
+                    .toList();
                 return RefreshIndicator(
                   color: AppColors.brandPink,
                   onRefresh: () async {
+                    ref.read(homeHiddenUsersProvider.notifier).clear();
                     ref.invalidate(usersProvider(filters));
                   },
-                  child: users.isEmpty
+                  child: visible.isEmpty
                       ? ListView(
                           children: [
                             SizedBox(
@@ -88,9 +96,9 @@ class HomeScreen extends ConsumerWidget {
                             mainAxisSpacing: 16,
                             childAspectRatio: 3 / 4,
                           ),
-                          itemCount: users.length,
+                          itemCount: visible.length,
                           itemBuilder: (context, i) => UserCard(
-                            user: users[i],
+                            user: visible[i],
                             routePrefix: '/home',
                           ),
                         ),

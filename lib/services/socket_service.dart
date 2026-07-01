@@ -12,6 +12,7 @@ import '../state/messages_provider.dart';
 import '../state/notifications_provider.dart';
 import 'call_service.dart';
 import 'callkit_service.dart';
+import 'local_notifications_service.dart';
 
 // ---------------------------------------------------------------------------
 // SocketService — mirrors SocketContext.tsx
@@ -106,7 +107,9 @@ class SocketService {
       try {
         ref.invalidate(conversationsProvider);
         ref.invalidate(notificationsProvider);
-        // Also refresh the open chat for the sender, if id is present.
+        // Refresh (merge, not wipe) the open chat for the sender.
+        // Using .notifier.refresh() preserves existing messages and avoids
+        // the isLoading flash that ref.invalidate() causes on a NotifierProvider.
         final payload = _toMap(data);
         final senderId = (payload['from'] ??
                 payload['sender_id'] ??
@@ -115,15 +118,53 @@ class SocketService {
             .toString()
             .trim();
         if (senderId.isNotEmpty) {
-          ref.invalidate(messagesProvider(senderId));
+          try {
+            ref.read(messagesProvider(senderId).notifier).refresh();
+          } catch (_) {}
         }
       } catch (_) {}
     });
 
-    newSocket.on('notification:new', (_) {
+    newSocket.on('notification:new', (data) {
+      final payload = _toMap(data);
+      final type = (payload['type'] ?? '').toString().toLowerCase();
+      final actorId =
+          (payload['actor_id'] ?? payload['actorId'] ?? '').toString();
+
+      // Derive the sender's name from the current conversation list (before it
+      // refreshes) for a nicer banner title.
+      String? senderName;
+      try {
+        final convs = ref.read(conversationsProvider).asData?.value ?? [];
+        for (final c in convs) {
+          if (c.otherUser.id == actorId) {
+            senderName = c.otherUser.name;
+            break;
+          }
+        }
+      } catch (_) {}
+
+      // Refresh BOTH the bell badge AND the conversation list so the Chats tab
+      // and header update on any page — not just inside the open chat.
+      // The backend only emits notification:new when the receiver is NOT active
+      // in that chat, so this is exactly the "message arrived elsewhere" case.
       try {
         ref.invalidate(notificationsProvider);
+        ref.invalidate(conversationsProvider);
       } catch (_) {}
+
+      // Show a local notification banner for incoming messages so the user is
+      // alerted while on any screen (FCM push covers the backgrounded case once
+      // google-services.json is added).
+      if (type == 'message') {
+        LocalNotificationsService.showChatNotification(
+          title: (senderName != null && senderName.isNotEmpty)
+              ? senderName
+              : 'New message',
+          body: 'You received a new message',
+          payload: actorId.isNotEmpty ? '/chats/$actorId' : null,
+        );
+      }
     });
 
     // User status changes — broadcast to listeners (used by ConversationRow, header)
@@ -211,8 +252,9 @@ class SocketService {
         debugPrint('[Socket] callkitService.displayIncomingCall error: $e');
       }
 
-      // Emit call:ringing to let the caller know we received the notification
-      emit('call:ringing', {'callId': callId});
+      // Emit call:ringing to let the caller know we received the notification.
+      // Backend routes it to the caller via callerId.
+      emit('call:ringing', {'callId': callId, 'callerId': callerId});
     });
 
     // call:cancel — caller cancelled before we answered
@@ -327,8 +369,11 @@ class SocketService {
 
   // Phase 5 call emit helpers — mirrors SocketContext.tsx
 
-  void acceptCall({required String callId}) =>
-      emit('call:accept', {'callId': callId});
+  // Backend routes call:accept to the original caller via payload.callerId
+  // (io.to(payload.callerId)), so callerId is REQUIRED or the caller never
+  // receives the accept and stays stuck on "Calling...".
+  void acceptCall({required String callId, required String callerId}) =>
+      emit('call:accept', {'callId': callId, 'callerId': callerId});
 
   void startCall({required String callId, required String otherUserId}) =>
       emit('call:start', {'callId': callId, 'otherUserId': otherUserId});
@@ -339,11 +384,13 @@ class SocketService {
   void endCall({required String callId}) =>
       emit('call:end', {'callId': callId});
 
-  void rejectCall({required String callId}) =>
-      emit('call:reject', {'callId': callId});
+  // Backend routes call:reject to the caller via payload.callerId.
+  void rejectCall({required String callId, required String callerId}) =>
+      emit('call:reject', {'callId': callId, 'callerId': callerId});
 
-  void ringCall({required String callId}) =>
-      emit('call:ringing', {'callId': callId});
+  // Backend routes call:ringing to the caller via payload.callerId.
+  void ringCall({required String callId, required String callerId}) =>
+      emit('call:ringing', {'callId': callId, 'callerId': callerId});
 
   void pauseCall({required String callId}) =>
       emit('call:pause', {'callId': callId});

@@ -1,29 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../services/call_service.dart';
 import '../../state/call_overlay_provider.dart';
 import '../../theme/theme.dart';
-
-// ---------------------------------------------------------------------------
-// Color swatches offered in the background picker
-// ---------------------------------------------------------------------------
-
-const List<_ColorSwatch> _kColorSwatches = [
-  _ColorSwatch(color: Color(0xFF4A90D9), label: 'Blue'),
-  _ColorSwatch(color: Color(0xFF34A853), label: 'Green'),
-  _ColorSwatch(color: Color(0xFFF4B400), label: 'Amber'),
-];
-
-class _ColorSwatch {
-  const _ColorSwatch({required this.color, required this.label});
-  final Color color;
-  final String label;
-}
 
 // ---------------------------------------------------------------------------
 // BeautySettingsModal
@@ -109,7 +90,7 @@ class BeautySettingsModal extends ConsumerWidget {
           const SizedBox(height: 28),
 
           // ----------------------------------------------------------------
-          // Sliders — Smoothness, Slim Face, Big Eyes (Background Blur removed)
+          // Sliders — Smoothness, Slim Face, Big Eyes
           // ----------------------------------------------------------------
           _BeautySlider(
             icon: LucideIcons.sparkles,
@@ -147,10 +128,10 @@ class BeautySettingsModal extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Background Picker
+// Background Picker — None | Blur | Strong only
 // ---------------------------------------------------------------------------
 
-class _BackgroundPicker extends ConsumerWidget {
+class _BackgroundPicker extends StatelessWidget {
   const _BackgroundPicker({
     required this.overlay,
     required this.notifier,
@@ -161,32 +142,8 @@ class _BackgroundPicker extends ConsumerWidget {
   final CallOverlayNotifier notifier;
   final Future<void> Function() reapplyBg;
 
-  bool _isColorSelected(Color c) {
-    if (overlay.bgMode != VirtualBgMode.color) return false;
-    // Compare ignoring alpha — stored value is 0xRRGGBB, Color is 0xAARRGGBB
-    final stored = overlay.bgColor ?? -1;
-    final r = (c.r * 255).round();
-    final g = (c.g * 255).round();
-    final b = (c.b * 255).round();
-    final argb = (r << 16) | (g << 8) | b;
-    return stored == argb;
-  }
-
-  Future<void> _pickImage(BuildContext context) async {
-    try {
-      final picker = ImagePicker();
-      final file = await picker.pickImage(source: ImageSource.gallery);
-      if (file != null) {
-        notifier.setBgImage(file.path);
-        await reapplyBg();
-      }
-    } catch (e) {
-      debugPrint('[BgPicker] image_picker error: $e');
-    }
-  }
-
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -252,107 +209,10 @@ class _BackgroundPicker extends ConsumerWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-
-              // ---- Image from gallery ----
-              _ImageBgTile(
-                overlay: overlay,
-                onTap: () => _pickImage(context),
-              ),
-              const SizedBox(width: 10),
-
-              // ---- Color swatches ----
-              ..._kColorSwatches.expand((swatch) => [
-                    _BgTile(
-                      label: swatch.label,
-                      isSelected: _isColorSelected(swatch.color),
-                      onTap: () async {
-                        final r = (swatch.color.r * 255).round();
-                        final g = (swatch.color.g * 255).round();
-                        final b = (swatch.color.b * 255).round();
-                        final rgb = (r << 16) | (g << 8) | b;
-                        notifier.setBgColor(rgb);
-                        await reapplyBg();
-                      },
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: swatch.color,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                  ]),
             ],
           ),
         ),
       ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Image tile — shows thumbnail if an image is selected, else "add" icon
-// ---------------------------------------------------------------------------
-
-class _ImageBgTile extends StatelessWidget {
-  const _ImageBgTile({required this.overlay, required this.onTap});
-
-  final CallOverlayState overlay;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = overlay.bgMode == VirtualBgMode.image;
-    final hasImage =
-        overlay.bgImagePath != null && overlay.bgImagePath!.isNotEmpty;
-
-    Widget inner;
-    if (isSelected && hasImage) {
-      inner = ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Image.file(
-          File(overlay.bgImagePath!),
-          width: 64,
-          height: 64,
-          fit: BoxFit.cover,
-          errorBuilder: (_, e, s) => const Icon(LucideIcons.imagePlus,
-              size: 26, color: Colors.white70),
-        ),
-      );
-    } else {
-      inner = const Icon(LucideIcons.imagePlus, size: 26, color: Colors.white70);
-    }
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: const Color(0xFF2a2a2e),
-              border: isSelected
-                  ? Border.all(color: AppColors.brandPink, width: 2.5)
-                  : Border.all(color: Colors.white12, width: 1),
-            ),
-            child: Center(child: inner),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            isSelected && hasImage ? 'Photo' : 'Add photo',
-            style: TextStyle(
-              fontSize: 10,
-              color: isSelected ? AppColors.brandPink : Colors.white54,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

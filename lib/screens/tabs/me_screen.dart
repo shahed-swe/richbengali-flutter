@@ -36,8 +36,9 @@ class _MeScreenState extends ConsumerState<MeScreen> {
   bool _avatarLoading = false;
   String? _viewedImage;
 
-  // Track whether controllers have been seeded from Me data
-  bool _seeded = false;
+  // Track which user id the controllers were last seeded from.
+  // Re-seed whenever a different user's data loads (e.g. after account switch).
+  String? _seededForId;
 
   final _picker = ImagePicker();
 
@@ -50,11 +51,12 @@ class _MeScreenState extends ConsumerState<MeScreen> {
   }
 
   void _seedFrom(Me me) {
-    if (_seeded) return;
-    _seeded = true;
+    if (_seededForId == me.id) return;
+    _seededForId = me.id;
     _nameCtrl.text = me.name;
     _ageCtrl.text = me.age?.toString() ?? '';
     _cityCtrl.text = me.city ?? '';
+    _extendedPatch = {};
   }
 
   bool _hasTags(String v) => RegExp(r'<[^>]*>?').hasMatch(v);
@@ -133,16 +135,7 @@ class _MeScreenState extends ConsumerState<MeScreen> {
   }
 
   Future<void> _handleOpenUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cannot open URL: $url')),
-        );
-      }
-    }
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   @override

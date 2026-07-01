@@ -10,6 +10,11 @@ import 'services/local_notifications_service.dart';
 import 'services/push_service.dart';
 import 'services/voip_push_service.dart';
 import 'state/auth_provider.dart';
+import 'state/conversations_provider.dart';
+import 'state/favorites_provider.dart';
+import 'state/me_provider.dart';
+import 'state/notifications_provider.dart';
+import 'state/users_provider.dart';
 import 'theme/theme.dart';
 import 'widgets/call/minimized_call.dart';
 
@@ -29,6 +34,7 @@ class RichBengaliApp extends ConsumerStatefulWidget {
 class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
     with WidgetsBindingObserver {
   bool _servicesStarted = false;
+  String? _previousUserId;
 
   @override
   void initState() {
@@ -123,11 +129,31 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
     // Mirrors App.tsx useEffect on [user]
     // -------------------------------------------------------------------------
     ref.listen<AuthState>(authProvider, (previous, next) {
+      final nextUserId = next.user?.id;
+      final userChanged = nextUserId != null && nextUserId != _previousUserId;
+
       if (next.isLoggedIn && !(previous?.isLoggedIn ?? false)) {
         _startPushServices();
       } else if (!next.isLoggedIn && (previous?.isLoggedIn ?? false)) {
         _stopPushServices();
       }
+
+      // Invalidate all user-scoped providers whenever the logged-in user
+      // changes (login as a different account) or on logout, so stale data
+      // from the previous session is never shown to the next user.
+      if (userChanged || (!next.isLoggedIn && (previous?.isLoggedIn ?? false))) {
+        try {
+          ref.invalidate(meProvider);
+          ref.invalidate(usersProvider);
+          ref.invalidate(favoritesProvider);
+          ref.invalidate(conversationsProvider);
+          ref.invalidate(notificationsProvider);
+        } catch (e) {
+          debugPrint('[App] provider invalidation error: $e');
+        }
+      }
+
+      _previousUserId = nextUserId;
     });
 
     // Trigger on first build if token was already restored from storage

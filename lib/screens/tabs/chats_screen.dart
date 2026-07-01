@@ -147,7 +147,8 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
                   final filtered = _filter == 'unread'
                       ? convos
                           .where((c) =>
-                              (unreadCounts[c.otherUser.id] ?? 0) > 0)
+                              (unreadCounts[c.otherUser.id] ?? 0) > 0 ||
+                              c.unreadCount > 0)
                           .toList()
                       : convos;
 
