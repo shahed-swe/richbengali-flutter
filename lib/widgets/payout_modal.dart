@@ -1,4 +1,5 @@
 // ignore_for_file: deprecated_member_use
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -116,7 +117,11 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
 
     setState(() => _isLoading = true);
     try {
+      // Backend methodSchema requires details.accountHolderName and a NESTED
+      // details.address { country, city, postCode, firstLine }. (Matches
+      // richb-rn PayoutModal — country defaults to 'BD'.)
       final Map<String, dynamic> details = {
+        'accountHolderName': '$fn $ln'.trim(),
         'firstName': fn,
         'lastName': ln,
         'currency': _currency,
@@ -127,9 +132,12 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
           'accountNumber': _accountNumberCtrl.text.trim(),
           'iban': _accountNumberCtrl.text.trim(),
         },
-        'city': city,
-        'postCode': post,
-        'firstLine': street,
+        'address': {
+          'country': 'BD',
+          'city': city,
+          'postCode': post,
+          'firstLine': street,
+        },
       };
       await ref.read(payoutsRepositoryProvider).setMethod(
             currency: _currency,
@@ -139,7 +147,7 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
       await ref.read(meProvider.notifier).refresh();
       if (mounted) setState(() => _step = _Step.withdraw);
     } catch (e) {
-      _showAlert('Failed to save method. Please try again.');
+      _showAlert(_payoutError(e, 'Failed to save method. Please try again.'));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -173,10 +181,25 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
       }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      _showAlert('Failed to request payout. Please try again.');
+      _showAlert(_payoutError(e, 'Failed to request payout. Please try again.'));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  String _payoutError(Object e, String fallback) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map) {
+        if (data['missingFields'] is List &&
+            (data['missingFields'] as List).isNotEmpty) {
+          return 'Missing: ${(data['missingFields'] as List).join(', ')}';
+        }
+        final m = data['error'] ?? data['message'];
+        if (m != null && m.toString().isNotEmpty) return m.toString();
+      }
+    }
+    return fallback;
   }
 
   void _showAlert(String msg) {

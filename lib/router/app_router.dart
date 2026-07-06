@@ -29,8 +29,26 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     // We map this by handling payout route directly.
 
     redirect: (context, state) {
+      final uri = state.uri;
+
+      // --- Custom-scheme deep-link returns from Stripe / Wise ---
+      // e.g. richbengali://payout?status=success  (host = 'payout')
+      //      richbengali://subscription?status=success
+      // go_router can't match these directly, so remap to the real routes.
+      if (uri.host == 'payout' || uri.path == '/payout') {
+        final status = uri.queryParameters['status'] ??
+            uri.queryParameters['payoutStatus'] ??
+            '';
+        return '/me/payout?status=$status';
+      }
+      if (uri.host == 'subscription' || uri.path == '/subscription') {
+        final status = uri.queryParameters['status'] ?? '';
+        return '/me/subscription?status=$status';
+      }
+
+      // --- Auth gating ---
       final isLoggedIn = notifier.isLoggedIn;
-      final path = state.uri.path;
+      final path = uri.path;
 
       final isAuthRoute = path == '/login' || path == '/register' || path == '/forgot';
 

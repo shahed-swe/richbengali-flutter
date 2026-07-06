@@ -32,11 +32,15 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
     _sub = ref.read(socketServiceProvider).onEarningsUpdate.listen((payload) {
       if (!mounted) return;
       setState(() {
-        _callEarnings =
-            (payload['callEarnings'] ?? payload['earnings'] ?? '0.00')
-                .toString();
-        if (payload['maleBalance'] != null) {
-          _liveMaleBalance = asDoubleN(payload['maleBalance']);
+        // Backend startCallTicker sends snake_case keys with a _usd suffix.
+        final earn = asDoubleN(payload['call_earnings_usd'] ??
+                payload['callEarnings'] ??
+                payload['earnings']) ??
+            0.0;
+        _callEarnings = earn.toStringAsFixed(2);
+        final maleBal = payload['male_balance_usd'] ?? payload['maleBalance'];
+        if (maleBal != null) {
+          _liveMaleBalance = asDoubleN(maleBal);
         }
       });
     });

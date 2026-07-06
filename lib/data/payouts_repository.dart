@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/dio_client.dart';
@@ -48,10 +47,10 @@ class PayoutsRepository {
 
   /// Returns url if the backend returns one (e.g. for Wise redirect), else null.
   Future<String?> requestPayout({required double amountUsd}) async {
-    final platform = Platform.isIOS ? 'ios' : 'android';
+    // Backend requestSchema requires platform to be 'app' or 'web'.
     final resp = await _dio.post<dynamic>(
       '/payouts/request',
-      data: {'amount_usd': amountUsd, 'platform': platform},
+      data: {'amount_usd': amountUsd, 'platform': 'app'},
     );
     final raw = resp.data;
     if (raw is Map) {

@@ -47,3 +47,4 @@ app.*.map.json
 # Environment secrets — keep .env.example but never commit actual .env
 .env
 android/build/
+bugreport-*.zip
