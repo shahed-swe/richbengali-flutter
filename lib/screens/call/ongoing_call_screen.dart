@@ -342,6 +342,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
         return _OngoingUI(
           overlay: overlay,
           durationText: _formattedDuration,
+          durationSeconds: _durationSeconds,
           isVideoPaused: _isVideoPaused,
           isBeautyModalVisible: _isBeautyModalVisible,
           pipX: _pipX,
@@ -573,6 +574,7 @@ class _OngoingUI extends ConsumerWidget {
   const _OngoingUI({
     required this.overlay,
     required this.durationText,
+    required this.durationSeconds,
     required this.isVideoPaused,
     required this.isBeautyModalVisible,
     required this.pipX,
@@ -592,6 +594,7 @@ class _OngoingUI extends ConsumerWidget {
 
   final CallOverlayState overlay;
   final String durationText;
+  final int durationSeconds;
   final bool isVideoPaused;
   final bool isBeautyModalVisible;
   final double pipX;
@@ -784,7 +787,7 @@ class _OngoingUI extends ConsumerWidget {
               children: [
                 // EarningsOverlay
                 if (me != null) ...[
-                  EarningsOverlay(me: me),
+                  EarningsOverlay(me: me, durationSeconds: durationSeconds),
                   const SizedBox(height: 16),
                 ],
                 // Controls row

@@ -1,4 +1,5 @@
 ﻿import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,9 +13,13 @@ import '../../theme/theme.dart';
 /// Mirrors EarningsOverlay.tsx â€” blurred pill showing live earnings (female)
 /// or remaining balance minutes (male) during an ongoing call.
 class EarningsOverlay extends ConsumerStatefulWidget {
-  const EarningsOverlay({super.key, required this.me});
+  const EarningsOverlay({super.key, required this.me, this.durationSeconds = 0});
 
   final Me me;
+
+  /// Live call duration in seconds. Female live earnings are computed on-device
+  /// ($10/hour) from this, since the backend does not push live earnings.
+  final int durationSeconds;
 
   @override
   ConsumerState<EarningsOverlay> createState() => _EarningsOverlayState();
@@ -23,7 +28,11 @@ class EarningsOverlay extends ConsumerStatefulWidget {
 class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
   StreamSubscription<Map<String, dynamic>>? _sub;
 
-  String _callEarnings = '0.00';
+  // Female per-hour earning rate. Live earnings are computed on-device from the
+  // call duration; a backend earnings:update (if any) overrides when higher.
+  static const double _femaleRatePerHourUsd = 10.0;
+
+  double _backendEarnings = 0.0;
   double? _liveMaleBalance;
 
   @override
@@ -37,7 +46,7 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
                 payload['callEarnings'] ??
                 payload['earnings']) ??
             0.0;
-        _callEarnings = earn.toStringAsFixed(2);
+        _backendEarnings = earn;
         final maleBal = payload['male_balance_usd'] ?? payload['maleBalance'];
         if (maleBal != null) {
           _liveMaleBalance = asDoubleN(maleBal);
@@ -67,8 +76,13 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
     final isFemale = !widget.me.isMale;
     final iconColor = isFemale ? AppColors.brandPink : const Color(0xFF15803d);
 
+    // Live earnings = call minutes × $10/hour, computed on-device so the value
+    // ticks up every second. If the backend ever pushes a higher figure, use it.
+    final computedEarnings =
+        widget.durationSeconds / 3600.0 * _femaleRatePerHourUsd;
+    final earnings = math.max(computedEarnings, _backendEarnings);
     final valueText = isFemale
-        ? '\$$_callEarnings'
+        ? '\$${earnings.toStringAsFixed(2)}'
         : '${_displayMinutes()}';
     final labelText = isFemale ? 'Earnings' : 'mins';
 
