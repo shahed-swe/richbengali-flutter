@@ -1,7 +1,7 @@
 # Phase 8: minimum deployment target raised to 14.0
 # Agora 6.x, Firebase, and screen_protector all require iOS 13+.
 # 14.0 gives us CXProvider reliability improvements used by CallKit.
-platform :ios, '14.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -44,7 +44,7 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     # Ensure every pod respects the minimum deployment target
     target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
 end

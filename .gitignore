@@ -46,5 +46,12 @@ app.*.map.json
 
 # Environment secrets — keep .env.example but never commit actual .env
 .env
+
+# Apple code-signing material — NEVER commit (this repo is public)
+*.p8
+*.cer
+*.mobileprovision
+*.certSigningRequest
+
 android/build/
 bugreport-*.zip

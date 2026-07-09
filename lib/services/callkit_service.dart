@@ -9,6 +9,7 @@ import 'package:flutter_callkit_incoming/entities/notification_params.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../state/call_overlay_provider.dart';
 import 'call_service.dart';
@@ -76,6 +77,28 @@ class CallkitService {
   bool _listenersSetUp = false;
 
   // ---------------------------------------------------------------------------
+  // CallKit (iOS) requires the call id to be a valid UUID. Our backend call ids
+  // are NOT UUIDs, and flutter_callkit_incoming force-unwraps
+  // `UUID(uuidString: data.uuid)!` on iOS — so passing a non-UUID crashes the
+  // app the instant an incoming call is displayed (Android→iPhone crash).
+  // We hand CallKit a UUID derived *deterministically* from the backend id (so
+  // endCall()/lookups still match) and carry the real id in `extra` so every
+  // event can recover it. Ids that are already UUIDs pass through unchanged.
+  // ---------------------------------------------------------------------------
+  static final _uuid = const Uuid();
+  static const _urlNamespace = '6ba7b811-9dad-11d1-80b4-00c04fd430c8';
+  static final _uuidPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+
+  /// Maps a backend call id to a valid CallKit UUID (deterministic).
+  static String callKitId(String backendCallId) {
+    if (backendCallId.isEmpty) return _uuid.v4();
+    if (_uuidPattern.hasMatch(backendCallId)) return backendCallId;
+    return _uuid.v5(_urlNamespace, backendCallId);
+  }
+
+  // ---------------------------------------------------------------------------
   // Display an incoming call via flutter_callkit_incoming.
   // Mirrors RNCallKeep.displayIncomingCall + Notifee full-screen notification.
   // ---------------------------------------------------------------------------
@@ -89,7 +112,9 @@ class CallkitService {
     try {
       debugPrint('[CallKit] displayIncomingCall: $callId / $callerName');
       final params = CallKitParams(
-        id: callId,
+        // CallKit needs a real UUID; carry the true backend id in `extra`.
+        id: callKitId(callId),
+        extra: <String, dynamic>{'callId': callId},
         nameCaller: callerName,
         appName: 'RichBengali',
         avatar: callerAvatar,
@@ -141,7 +166,7 @@ class CallkitService {
 
   Future<void> endCall(String callId) async {
     try {
-      await FlutterCallkitIncoming.endCall(callId);
+      await FlutterCallkitIncoming.endCall(callKitId(callId));
     } catch (e) {
       debugPrint('[CallKit] endCall error: $e');
     }
@@ -175,7 +200,12 @@ class CallkitService {
       final body = event.body is Map
           ? Map<String, dynamic>.from(event.body as Map)
           : <String, dynamic>{};
-      final callId = body['id']?.toString() ?? '';
+      // `id` is the CallKit UUID we generated; the real backend call id is in
+      // `extra.callId`. Fall back to `id` for ids that were already UUIDs.
+      final extra = body['extra'] is Map
+          ? Map<String, dynamic>.from(body['extra'] as Map)
+          : const <String, dynamic>{};
+      final callId = (extra['callId'] ?? body['id'])?.toString() ?? '';
 
       switch (event.event) {
         // ------------------------------------------------------------------

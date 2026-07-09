@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 2.0.4+14
 
 environment:
   sdk: ^3.10.4
@@ -59,6 +59,9 @@ dependencies:
   flutter_callkit_incoming: ^2.2.5
   sentry_flutter: ^8.14.2
   screen_protector: ^1.5.2
+  # Used to derive a valid CallKit UUID from non-UUID backend call ids
+  # (iOS flutter_callkit_incoming force-unwraps UUID(uuidString:) and crashes).
+  uuid: ^4.5.3
   # flutter_voip_push_notification not compatible with null-safe Dart SDK 3.x;
   # VoIP push is handled via a custom platform channel in voip_push_service.dart.
   # TODO (Phase 8/Mac): add a null-safe VoIP push package or write Swift/ObjC plugin.

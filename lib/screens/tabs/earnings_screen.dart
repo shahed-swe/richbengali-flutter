@@ -277,6 +277,30 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                               ),
                             ],
                           ),
+
+                    // Minimum withdrawal hint — always visible so users know
+                    // the threshold (and why the Withdraw button is disabled
+                    // when the balance is below it).
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          LucideIcons.info,
+                          size: 12,
+                          color: Color(0xCCFFFFFF),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          'Minimum withdrawal: \$${minCap.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: Color(0xE6FFFFFF),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
