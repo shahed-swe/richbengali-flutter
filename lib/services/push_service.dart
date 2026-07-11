@@ -42,14 +42,21 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     debugPrint(
         '[FCM-BG] Received: ${message.messageId} type=${message.data['type']}');
     final type = message.data['type']?.toString();
-    final subType = message.data['subType']?.toString();
+    // Backend sends `callAction` for calls; accept `subType` too.
+    final subType =
+        (message.data['subType'] ?? message.data['callAction'])?.toString();
 
     if (type == 'call') {
-      // Background call push — log only.
-      // The socket call:request handler covers the foreground case.
-      // Full background CallKit from FCM requires native integration (Phase 8).
-      debugPrint(
-          '[FCM-BG] Call subType=$subType — handled by socket on foreground');
+      // Incoming call while the app is backgrounded/killed → show the native
+      // CallKit ring UI. (On iOS the VoIP/PushKit path also covers this; on
+      // Android this FCM handler is what makes background calls actually ring.)
+      if (subType == null || subType == 'initiated') {
+        await CallkitService.showIncomingFromPush(
+          Map<String, dynamic>.from(message.data),
+        );
+      } else if (subType == 'ended' || subType == 'cancelled') {
+        await CallkitService.endAllFromPush();
+      }
     } else {
       // Chat / other — show a local notification.
       // Re-initialise LocalNotificationsService in this isolate.
@@ -60,10 +67,13 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       final body = message.data['body']?.toString() ??
           message.notification?.body ??
           '';
+      // Backend sends `room_id` (snake_case); accept `roomId` too.
+      final roomId =
+          (message.data['roomId'] ?? message.data['room_id'] ?? '').toString();
       await LocalNotificationsService.showChatNotification(
         title: senderName,
         body: body,
-        payload: 'chat:${message.data['roomId'] ?? ''}',
+        payload: 'chat:$roomId',
       );
     }
   } catch (e) {
@@ -255,11 +265,19 @@ class PushService {
 
       if (type == 'call') {
         // Incoming call push in foreground — show CallKit
-        final subType = message.data['subType']?.toString();
-        final callId = message.data['callId']?.toString() ?? '';
-        final callerName =
-            message.data['callerName']?.toString() ?? 'Unknown';
-        final callerAvatar = message.data['callerAvatar']?.toString();
+        // Backend push uses sessionId/senderName/callAction; accept camelCase too.
+        final subType =
+            (message.data['subType'] ?? message.data['callAction'])?.toString();
+        final callId =
+            (message.data['callId'] ?? message.data['sessionId'] ?? '')
+                .toString();
+        final callerName = (message.data['callerName'] ??
+                message.data['senderName'] ??
+                'Unknown')
+            .toString();
+        final callerAvatar =
+            (message.data['callerAvatar'] ?? message.data['avatar'])
+                ?.toString();
         final callType = message.data['callType']?.toString() ?? 'audio';
         final isVideo = callType == 'video';
 
@@ -284,7 +302,8 @@ class PushService {
         final body = message.data['body']?.toString() ??
             message.notification?.body ??
             '';
-        final roomId = message.data['roomId']?.toString() ?? '';
+        final roomId =
+            (message.data['roomId'] ?? message.data['room_id'] ?? '').toString();
 
         await LocalNotificationsService.showChatNotification(
           title: senderName,

@@ -64,3 +64,6 @@ ios/Runner/GoogleService-Info.plist
 
 android/build/
 bugreport-*.zip
+
+# Backend repo dropped in for reference — NEVER commit into this public repo
+richbengali-backend/

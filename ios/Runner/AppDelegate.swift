@@ -173,9 +173,12 @@ extension AppDelegate: PKPushRegistryDelegate {
 
         // Extract caller info from the push payload.
         // Expected shape: { "callerName": "...", "callId": "...", "callType": "audio"|"video" }
-        let callerName = data["callerName"] as? String ?? "Unknown"
-        let callId     = data["callId"]     as? String ?? UUID().uuidString
-        let callType   = data["callType"]   as? String ?? "audio"
+        // Backend VoIP payload uses senderName/sessionId; accept camelCase too.
+        let callerName = (data["callerName"] as? String)
+            ?? (data["senderName"] as? String) ?? "Unknown"
+        let callId = (data["callId"] as? String)
+            ?? (data["sessionId"] as? String) ?? UUID().uuidString
+        let callType = data["callType"] as? String ?? "audio"
         let hasVideo   = callType == "video"
 
         // We MUST call report before completion() — iOS requires a CallKit report

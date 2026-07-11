@@ -111,53 +111,99 @@ class CallkitService {
   }) async {
     try {
       debugPrint('[CallKit] displayIncomingCall: $callId / $callerName');
-      final params = CallKitParams(
-        // CallKit needs a real UUID; carry the true backend id in `extra`.
-        id: callKitId(callId),
-        extra: <String, dynamic>{'callId': callId},
-        nameCaller: callerName,
-        appName: 'RichBengali',
-        avatar: callerAvatar,
-        type: isVideo ? 1 : 0, // 0=audio, 1=video
-        textAccept: 'Accept',
-        textDecline: 'Decline',
-        duration: 45000, // 45 second ring timeout
-        missedCallNotification: const NotificationParams(
-          showNotification: true,
-          count: 1,
-        ),
-        android: AndroidParams(
-          isCustomNotification: true,
-          isShowLogo: false,
-          ringtonePath: 'system_ringtone_default',
-          backgroundColor: '#0955fa',
-          backgroundUrl: callerAvatar,
-          actionColor: '#4CAF50',
-          textColor: '#ffffff',
-          incomingCallNotificationChannelName: 'Incoming Calls',
-          missedCallNotificationChannelName: 'Missed Calls',
-          isShowCallID: false,
-        ),
-        ios: IOSParams(
-          iconName: 'AppIcon',
-          handleType: 'generic',
-          supportsVideo: isVideo,
-          maximumCallGroups: 2,
-          maximumCallsPerCallGroup: 1,
-          audioSessionMode: 'default',
-          audioSessionActive: true,
-          audioSessionPreferredSampleRate: 44100.0,
-          audioSessionPreferredIOBufferDuration: 0.005,
-          supportsDTMF: false,
-          supportsHolding: false,
-          supportsGrouping: false,
-          supportsUngrouping: false,
-        ),
-      );
-      await FlutterCallkitIncoming.showCallkitIncoming(params);
+      await FlutterCallkitIncoming.showCallkitIncoming(_incomingParams(
+        callId: callId,
+        callerName: callerName,
+        callerAvatar: callerAvatar,
+        isVideo: isVideo,
+      ));
     } catch (e) {
       debugPrint('[CallKit] displayIncomingCall error: $e');
     }
+  }
+
+  /// Show an incoming call directly from a raw FCM/VoIP push payload. Static so
+  /// it works from the FCM background isolate (no Riverpod container there).
+  /// Reads the backend push key names (`sessionId`, `senderName`) with camelCase
+  /// fallbacks so foreground-socket and background-push agree.
+  static Future<void> showIncomingFromPush(Map<String, dynamic> data) async {
+    final callId = (data['callId'] ?? data['sessionId'] ?? '').toString();
+    final callerName =
+        (data['callerName'] ?? data['senderName'] ?? 'Unknown').toString();
+    final callerAvatar = (data['callerAvatar'] ?? data['avatar'])?.toString();
+    final callType = (data['callType'] ?? 'audio').toString();
+    try {
+      await FlutterCallkitIncoming.showCallkitIncoming(_incomingParams(
+        callId: callId,
+        callerName: callerName,
+        callerAvatar: callerAvatar,
+        isVideo: callType == 'video',
+      ));
+    } catch (e) {
+      debugPrint('[CallKit] showIncomingFromPush error: $e');
+    }
+  }
+
+  /// End all native calls — static for use from the FCM background isolate.
+  static Future<void> endAllFromPush() async {
+    try {
+      await FlutterCallkitIncoming.endAllCalls();
+    } catch (e) {
+      debugPrint('[CallKit] endAllFromPush error: $e');
+    }
+  }
+
+  /// Builds the CallKitParams for an incoming call. Shared by the instance
+  /// display path and the static background-push path.
+  static CallKitParams _incomingParams({
+    required String callId,
+    required String callerName,
+    String? callerAvatar,
+    bool isVideo = false,
+  }) {
+    return CallKitParams(
+      // CallKit needs a real UUID; carry the true backend id in `extra`.
+      id: callKitId(callId),
+      extra: <String, dynamic>{'callId': callId},
+      nameCaller: callerName,
+      appName: 'RichBengali',
+      avatar: callerAvatar,
+      type: isVideo ? 1 : 0, // 0=audio, 1=video
+      textAccept: 'Accept',
+      textDecline: 'Decline',
+      duration: 45000, // 45 second ring timeout
+      missedCallNotification: const NotificationParams(
+        showNotification: true,
+        count: 1,
+      ),
+      android: AndroidParams(
+        isCustomNotification: true,
+        isShowLogo: false,
+        ringtonePath: 'system_ringtone_default',
+        backgroundColor: '#0955fa',
+        backgroundUrl: callerAvatar,
+        actionColor: '#4CAF50',
+        textColor: '#ffffff',
+        incomingCallNotificationChannelName: 'Incoming Calls',
+        missedCallNotificationChannelName: 'Missed Calls',
+        isShowCallID: false,
+      ),
+      ios: IOSParams(
+        iconName: 'AppIcon',
+        handleType: 'generic',
+        supportsVideo: isVideo,
+        maximumCallGroups: 2,
+        maximumCallsPerCallGroup: 1,
+        audioSessionMode: 'default',
+        audioSessionActive: true,
+        audioSessionPreferredSampleRate: 44100.0,
+        audioSessionPreferredIOBufferDuration: 0.005,
+        supportsDTMF: false,
+        supportsHolding: false,
+        supportsGrouping: false,
+        supportsUngrouping: false,
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
