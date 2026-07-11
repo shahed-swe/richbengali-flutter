@@ -33,9 +33,11 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // NOTE: Firebase.initializeApp() is called automatically in background
-  // isolates when properly configured. Without google-services.json this
-  // isolate will simply not receive messages; the guard prevents a crash.
+  // Background isolate: initialise Firebase before using any Firebase APIs.
+  // Guarded so a config issue never crashes the isolate.
+  try {
+    await Firebase.initializeApp();
+  } catch (_) {}
   try {
     debugPrint(
         '[FCM-BG] Received: ${message.messageId} type=${message.data['type']}');

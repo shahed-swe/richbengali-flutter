@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 // ignore: unnecessary_import
 import 'package:flutter/foundation.dart';
@@ -37,6 +38,18 @@ Future<void> main() async {
   // Load environment variables first — everything else may depend on them.
   // ---------------------------------------------------------------------------
   await dotenv.load(fileName: '.env');
+
+  // ---------------------------------------------------------------------------
+  // Initialise Firebase (reads GoogleService-Info.plist / google-services.json).
+  // Required for FCM push notifications — token retrieval and message delivery
+  // both need this. Guarded so a config error never blocks app startup.
+  // ---------------------------------------------------------------------------
+  try {
+    await Firebase.initializeApp();
+    debugPrint('[main] Firebase initialised');
+  } catch (e) {
+    debugPrint('[main] Firebase.initializeApp error: $e');
+  }
 
   // ---------------------------------------------------------------------------
   // Phase 8: VersionService — compare stored vs. current version.

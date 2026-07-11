@@ -57,5 +57,10 @@ app.*.map.json
 *firebase-adminsdk*.json
 *-service-account*.json
 
+# Firebase client config — contains API keys; kept out of this PUBLIC repo.
+# Present locally for builds; re-download from Firebase Console on a fresh clone.
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+
 android/build/
 bugreport-*.zip
