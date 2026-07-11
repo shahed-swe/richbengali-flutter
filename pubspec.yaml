@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2.0.4+15
+version: 2.0.4+16
 
 environment:
   sdk: ^3.10.4
@@ -49,7 +49,7 @@ dependencies:
   image_picker: ^1.1.2
   socket_io_client: ^3.1.6
   flutter_slidable: ^4.0.3
-  agora_rtc_engine: ^6.5.4
+  agora_rtc_engine: ^6.6.3
   permission_handler: ^12.0.3
   wakelock_plus: ^1.6.1
   # Phase 6 — push notifications + native call UX
@@ -90,6 +90,11 @@ flutter_native_splash:
   android_12:
     color: "#ffffff"
     image: assets/images/splash.png
+
+dependency_overrides:
+  # agora_rtc_engine 6.6.x wrongly pins ffi ^1.1.2 (6.5.4 allowed 2.x);
+  # package_info_plus needs ffi 2.x. Force 2.x — Agora runs fine on it.
+  ffi: ^2.1.0
 
 dev_dependencies:
   flutter_test:

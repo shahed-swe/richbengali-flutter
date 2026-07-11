@@ -53,5 +53,9 @@ app.*.map.json
 *.mobileprovision
 *.certSigningRequest
 
+# Firebase Admin SDK service-account key — BACKEND-ONLY secret, NEVER commit
+*firebase-adminsdk*.json
+*-service-account*.json
+
 android/build/
 bugreport-*.zip

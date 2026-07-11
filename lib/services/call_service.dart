@@ -20,6 +20,7 @@ class CallEngineState extends ChangeNotifier {
   int? remoteUid;
   bool engineReady = false;
   String? channelId;
+  int? localUid;
 
   void _setJoined(bool v) {
     joined = v;
@@ -40,11 +41,16 @@ class CallEngineState extends ChangeNotifier {
     channelId = id;
   }
 
+  void _setLocalUid(int? uid) {
+    localUid = uid;
+  }
+
   void reset() {
     joined = false;
     remoteUid = null;
     engineReady = false;
     channelId = null;
+    localUid = null;
     notifyListeners();
   }
 }
@@ -317,6 +323,7 @@ class CallService {
     }
 
     engineState._setChannelId(sessionId);
+    engineState._setLocalUid(numericUid);
 
     await _engine!.joinChannel(
       token: token,

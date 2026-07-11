@@ -1,10 +1,10 @@
 PODS:
-  - agora_rtc_engine (6.5.4):
-    - AgoraIrisRTC_iOS (= 4.5.3-build.1)
-    - AgoraRtcEngine_Special_iOS (= 4.5.3.70)
+  - agora_rtc_engine (6.6.3):
+    - AgoraIrisRTC_iOS2 (= 4.6.2-build.1)
+    - AgoraVideo_Special_iOS (= 4.6.2.70)
     - Flutter
-  - AgoraIrisRTC_iOS (4.5.3-build.1)
-  - AgoraRtcEngine_Special_iOS (4.5.3.70)
+  - AgoraIrisRTC_iOS2 (4.6.2-build.1)
+  - AgoraVideo_Special_iOS (4.6.2.70)
   - CryptoSwift (1.10.0)
   - Firebase/CoreOnly (11.15.0):
     - FirebaseCore (~> 11.15.0)
@@ -132,8 +132,8 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
-    - AgoraIrisRTC_iOS
-    - AgoraRtcEngine_Special_iOS
+    - AgoraIrisRTC_iOS2
+    - AgoraVideo_Special_iOS
     - CryptoSwift
     - Firebase
     - FirebaseCore
@@ -186,9 +186,9 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/wakelock_plus/ios"
 
 SPEC CHECKSUMS:
-  agora_rtc_engine: c8ad6313ec7a1b2f28ab3328ff485df6d19a32de
-  AgoraIrisRTC_iOS: d6468160cad25d36c2b6cb5e9bd5b17ba4e58677
-  AgoraRtcEngine_Special_iOS: 48063561d21b07524358ee0a17abc6be762c58f7
+  agora_rtc_engine: eb07ef3cf67c06a20fbdfc7f67b09c5ffb4be324
+  AgoraIrisRTC_iOS2: 13996c3c78134da357634f6a1a12741436658886
+  AgoraVideo_Special_iOS: 9bd42c487f936f4d335d5630e2632f0b08e214f5
   CryptoSwift: e2e7776512f250e66205955da748e7a4e4abffe0
   Firebase: d99ac19b909cd2c548339c2241ecd0d1599ab02e
   firebase_core: 995454a784ff288be5689b796deb9e9fa3601818

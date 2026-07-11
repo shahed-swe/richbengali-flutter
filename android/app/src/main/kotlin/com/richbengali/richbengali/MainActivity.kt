@@ -1,5 +1,8 @@
 package com.richbengali.richbengali
 
-import io.flutter.embedding.android.FlutterActivity
+import io.agora.agora_rtc_ng.AgoraPIPFlutterActivity
 
-class MainActivity : FlutterActivity()
+// Extends Agora's PiP-aware activity so Picture-in-Picture (floating call
+// window) works on Android. Requires android:supportsPictureInPicture="true"
+// on this activity in AndroidManifest.xml.
+class MainActivity : AgoraPIPFlutterActivity()

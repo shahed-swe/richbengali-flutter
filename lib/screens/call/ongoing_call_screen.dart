@@ -12,6 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../../services/call_pip_manager.dart';
 import '../../services/call_service.dart';
 import '../../services/socket_service.dart';
 import '../../state/call_overlay_provider.dart';
@@ -52,6 +53,12 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   // Track previous callState to detect engine-start transitions
   String? _prevCallState;
 
+  // Picture-in-Picture: floating call window when the app is backgrounded.
+  CallPipManager? _pip;
+  bool _pipSetupStarted = false;
+  int? _pipConfiguredRemoteUid;
+  AppLifecycleState _lastLifecycle = AppLifecycleState.resumed;
+
   @override
   void initState() {
     super.initState();
@@ -62,23 +69,105 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timerTick?.cancel();
+    try {
+      ref
+          .read(callServiceProvider)
+          .engineState
+          .removeListener(_onEngineStateChanged);
+    } catch (_) {}
+    _pip?.dispose();
     WakelockPlus.disable().catchError((_) {});
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
-  // App lifecycle â€” pause/resume
+  // App lifecycle â€” pause/resume + Picture-in-Picture
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final overlay = ref.read(callOverlayProvider);
-    if (overlay.activeCall == null) return;
+    if (overlay.activeCall == null) {
+      _lastLifecycle = state;
+      return;
+    }
     final callId = overlay.activeCall!.sessionId;
     final socket = ref.read(socketServiceProvider);
+    final pip = _pip;
 
-    if (state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.inactive) {
+      // Leaving the app during a call → float it in PiP. iOS must trigger PiP
+      // during 'inactive'; skip when merely recovering from 'paused'.
+      if (pip != null &&
+          pip.supported &&
+          !pip.autoEnterSupported &&
+          _lastLifecycle != AppLifecycleState.paused) {
+        // Android FLAG_SECURE (screenshot protection) blocks PiP — relax it
+        // while floating; it is re-applied on resume.
+        if (Platform.isAndroid) _disableCaptureProtection();
+        pip.start();
+      }
+    } else if (state == AppLifecycleState.paused) {
       socket.pauseCall(callId: callId);
     } else if (state == AppLifecycleState.resumed) {
       socket.resumeCall(callId: callId);
+      if (!Platform.isAndroid) pip?.stop();
+      if (Platform.isAndroid) _enableCaptureProtection();
+    }
+    _lastLifecycle = state;
+  }
+
+  // -------------------------------------------------------------------------
+  // Picture-in-Picture setup — creates the Agora PiP controller once the call
+  // is joined, and refreshes it when the remote user's video becomes available.
+  // -------------------------------------------------------------------------
+
+  Future<void> _setupPip(String sessionId, bool isVideo) async {
+    if (_pipSetupStarted) return;
+    _pipSetupStarted = true;
+    try {
+      final callService = ref.read(callServiceProvider);
+      final engine = callService.engine;
+      if (engine == null) return;
+      final pip = CallPipManager(engine);
+      _pip = pip;
+      await pip.init();
+      if (!pip.supported || !mounted) return;
+
+      final st = callService.engineState;
+      final size = MediaQuery.of(context).size;
+      _pipConfiguredRemoteUid = st.remoteUid;
+      await pip.setup(
+        channelId: st.channelId ?? sessionId,
+        localUid: st.localUid ?? 0,
+        remoteUid: st.remoteUid,
+        width: size.width.round(),
+        height: size.height.round(),
+        isVideo: isVideo,
+      );
+      // Refresh PiP streams once the remote user joins.
+      st.addListener(_onEngineStateChanged);
+    } catch (e) {
+      debugPrint('[OngoingCallScreen] _setupPip error: $e');
+    }
+  }
+
+  void _onEngineStateChanged() {
+    final pip = _pip;
+    if (pip == null || !pip.supported || !mounted) return;
+    final callService = ref.read(callServiceProvider);
+    final st = callService.engineState;
+    if (st.remoteUid != null && st.remoteUid != _pipConfiguredRemoteUid) {
+      _pipConfiguredRemoteUid = st.remoteUid;
+      final overlay = ref.read(callOverlayProvider);
+      final isVideo = (overlay.callType ?? 'audio') == 'video';
+      final size = MediaQuery.of(context).size;
+      pip.setup(
+        channelId: st.channelId ?? '',
+        localUid: st.localUid ?? 0,
+        remoteUid: st.remoteUid,
+        width: size.width.round(),
+        height: size.height.round(),
+        isVideo: isVideo,
+      );
     }
   }
 
@@ -201,6 +290,8 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
       isMuted: isMuted,
     );
     if (mounted) _startTimer();
+    // Set up the floating PiP window (guarded internally; no-op if unsupported).
+    _setupPip(sessionId, isVideo);
   }
 
   // -------------------------------------------------------------------------
