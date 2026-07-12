@@ -150,6 +150,23 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
     }
   }
 
+  /// Tears down the PiP controller when a call ends and resets state so the
+  /// next call gets a fresh PiP. Safe to call repeatedly.
+  void _teardownPip() {
+    final pip = _pip;
+    _pip = null;
+    _pipSetupStarted = false;
+    _pipConfiguredRemoteUid = null;
+    try {
+      ref
+          .read(callServiceProvider)
+          .engineState
+          .removeListener(_onEngineStateChanged);
+    } catch (_) {}
+    // dispose() stops PiP and disarms OS auto-enter (fire-and-forget).
+    pip?.dispose();
+  }
+
   void _onEngineStateChanged() {
     final pip = _pip;
     if (pip == null || !pip.supported || !mounted) return;
@@ -358,6 +375,11 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
     // No active call â€” show nothing
     if (overlay.activeCall == null) {
       _engineInitFuture = null;
+      // Call ended: tear down PiP. This overlay is always mounted, so dispose()
+      // never runs on call end — without this, iOS auto-enter stays armed and
+      // re-shows the old frozen video when the app is later backgrounded.
+      if (_pipSetupStarted) _teardownPip();
+      _prevCallState = null;
       return const SizedBox.shrink();
     }
 

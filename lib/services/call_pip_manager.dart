@@ -154,15 +154,22 @@ class CallPipManager {
   }
 
   Future<void> dispose() async {
+    // Prevent any further start() and mark unusable immediately.
+    supported = false;
+    _setupDone = false;
+    final controller = _controller;
+    _controller = null;
+    _active = false;
     try {
-      await _controller?.unregisterPipStateChangedObserver();
-      await _controller?.pipDispose();
-      await _controller?.dispose();
+      // Exit PiP if it's currently showing, THEN tear down the controller so
+      // the OS auto-enter is disarmed (otherwise it re-enters with stale frames
+      // after the call has ended).
+      await controller?.pipStop();
+      await controller?.unregisterPipStateChangedObserver();
+      await controller?.pipDispose();
+      await controller?.dispose();
     } catch (e) {
       debugPrint('[CallPip] dispose error: $e');
     }
-    _controller = null;
-    _setupDone = false;
-    _active = false;
   }
 }
