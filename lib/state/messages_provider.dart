@@ -10,23 +10,31 @@ class MessagesState {
   final List<Message> messages;
   final bool isLoading;
 
+  /// True once history has been fetched successfully at least once. Distinct
+  /// from "messages is empty" (a real, loaded, empty chat). Used to retry a
+  /// failed load when the chat is reopened instead of showing empty forever.
+  final bool loaded;
+
   /// IDs of messages we know have been deleted — used for DEDUP
   final Set<String> deletedIds;
 
   const MessagesState({
     this.messages = const [],
     this.isLoading = false,
+    this.loaded = false,
     this.deletedIds = const {},
   });
 
   MessagesState copyWith({
     List<Message>? messages,
     bool? isLoading,
+    bool? loaded,
     Set<String>? deletedIds,
   }) {
     return MessagesState(
       messages: messages ?? this.messages,
       isLoading: isLoading ?? this.isLoading,
+      loaded: loaded ?? this.loaded,
       deletedIds: deletedIds ?? this.deletedIds,
     );
   }
@@ -47,15 +55,38 @@ class MessagesNotifier extends Notifier<MessagesState> {
     return const MessagesState(isLoading: true);
   }
 
+  // NOTE: must not touch `state` before the first `await` — build() calls this
+  // synchronously before the initial state is assigned.
   Future<void> _load() async {
-    try {
-      final msgs =
-          await ref.read(messagesRepositoryProvider).getMessages(otherUserId);
-      final sorted = List<Message>.from(msgs)
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      state = state.copyWith(messages: sorted, isLoading: false);
-    } catch (_) {
-      state = state.copyWith(isLoading: false);
+    // Retry a couple of times — a single transient failure must NOT strand the
+    // (kept-alive) provider in a permanent empty state (BUG #5a).
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final msgs = await ref
+            .read(messagesRepositoryProvider)
+            .getMessages(otherUserId);
+        final sorted = List<Message>.from(msgs)
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        state = state.copyWith(messages: sorted, isLoading: false, loaded: true);
+        return;
+      } catch (_) {
+        if (attempt < 2) {
+          await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+        }
+      }
+    }
+    // All attempts failed — leave loaded=false so reopening the chat retries.
+    state = state.copyWith(isLoading: false);
+  }
+
+  /// Called when the chat screen (re)opens. Because the provider is kept alive
+  /// for the whole session, a chat that failed to load once would otherwise show
+  /// "No messages yet" forever; this re-fetches when it wasn't loaded (or was
+  /// cleared) so reopening always recovers (BUG #5a / #5b).
+  void ensureLoaded() {
+    if (!state.loaded && !state.isLoading) {
+      state = state.copyWith(isLoading: true);
+      _load();
     }
   }
 
@@ -85,7 +116,10 @@ class MessagesNotifier extends Notifier<MessagesState> {
     final sorted = map.values.toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return MessagesState(
-        messages: sorted, deletedIds: prev.deletedIds, isLoading: false);
+        messages: sorted,
+        deletedIds: prev.deletedIds,
+        isLoading: false,
+        loaded: true);
   }
 
   /// Append a realtime message from socket `chat:message` with DEDUP.

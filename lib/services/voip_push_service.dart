@@ -47,8 +47,15 @@ class VoipPushService {
       // Set method call handler to receive calls from native Swift side
       _channel.setMethodCallHandler(_handleMethodCall);
 
-      // Ask the native side to register for VoIP push
-      await _channel.invokeMethod<void>('registerVoip');
+      // Ask the native side to register for VoIP push. If PushKit already issued
+      // a token before this handler existed (startup race), the native side
+      // returns the cached token here so we don't miss it.
+      final cached = await _channel.invokeMethod<String>('registerVoip');
+      if (cached != null && cached.isNotEmpty) {
+        _voipToken = cached;
+        debugPrint('[VoipPush] VoIP token (cached from native): $cached');
+        onTokenReceived?.call(cached);
+      }
       debugPrint('[VoipPush] iOS VoIP registration requested via platform channel');
     } on MissingPluginException {
       // Native side not yet implemented — this is expected until Phase 8

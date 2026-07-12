@@ -44,6 +44,11 @@ import UIKit
     // Track active call UUID so CallKit events can reference it.
     private var activeCallUUID: UUID?
 
+    // Latest VoIP push token, cached so Dart can retrieve it via `registerVoip`
+    // even when PushKit issued the token before the Dart channel handler existed
+    // (fixes the startup race where the very first token was dropped).
+    private var cachedVoipToken: String?
+
     // -------------------------------------------------------------------------
     // application(_:didFinishLaunchingWithOptions:)
     // -------------------------------------------------------------------------
@@ -109,6 +114,11 @@ import UIKit
             }
             result(nil)
 
+        case "registerVoip":
+            // VoipPushService is now listening — hand back the cached token if
+            // PushKit already issued one before the channel handler was installed.
+            result(cachedVoipToken)
+
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -150,6 +160,7 @@ extension AppDelegate: PKPushRegistryDelegate {
         let tokenData = pushCredentials.token
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
         debugPrint("[AppDelegate] VoIP push token: \(token)")
+        cachedVoipToken = token
 
         // Forward token to Dart so push_service.dart can register it with the server.
         DispatchQueue.main.async { [weak self] in

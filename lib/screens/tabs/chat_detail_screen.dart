@@ -66,6 +66,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) => _setupSocket());
     WidgetsBinding.instance.addPostFrameCallback((_) => _markNotificationsRead());
     WidgetsBinding.instance.addPostFrameCallback((_) => _markChatVisible());
+    // Re-fetch history when (re)opening if it wasn't loaded or was cleared, so a
+    // one-off failed load or a prior clear never shows a permanently stale/empty
+    // thread (BUG #5a / #5b).
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => ref.read(messagesProvider(_otherUserId).notifier).ensureLoaded());
   }
 
   @override

@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../core/device_id.dart';
 import '../core/env.dart';
 import '../core/jwt.dart';
 import '../state/active_chat_provider.dart';
@@ -90,7 +91,7 @@ class SocketService {
       Env.apiBase,
       io.OptionBuilder()
           .setTransports(['websocket', 'polling'])
-          .setAuth({'token': token, 'userId': userId})
+          .setAuth({'token': token, 'userId': userId, 'deviceId': DeviceId.value})
           .enableReconnection()
           .setReconnectionDelay(1000)
           .setReconnectionAttempts(10)
@@ -108,6 +109,19 @@ class SocketService {
         ref.read(callkitServiceProvider).processPendingCall();
       } catch (e) {
         debugPrint('[Socket] processPendingCall error: $e');
+      }
+      // BUG #4a: Socket.IO rooms are per-connection, so a reconnect (network
+      // blip) silently drops the chat room the user is sitting in — live
+      // messages + read receipts stop arriving until they leave/re-enter. Re-join
+      // + re-mark-active for whatever chat is open right now.
+      try {
+        final peerId = ref.read(currentChatPeerIdProvider);
+        if (peerId != null && peerId.isNotEmpty) {
+          newSocket.emit('chat:join', {'otherUserId': peerId});
+          newSocket.emit('chat:active', {'withUserId': peerId});
+        }
+      } catch (e) {
+        debugPrint('[Socket] reconnect re-join error: $e');
       }
     });
 
@@ -172,6 +186,16 @@ class SocketService {
       try {
         ref.invalidate(notificationsProvider);
         ref.invalidate(conversationsProvider);
+      } catch (_) {}
+
+      // BUG #4a: if this message is for the chat we're currently viewing but
+      // arrived via the personal room (e.g. a reconnect dropped the chat room),
+      // pull it into the open thread so it doesn't silently go missing.
+      try {
+        final currentPeer = ref.read(currentChatPeerIdProvider);
+        if (actorId.isNotEmpty && currentPeer == actorId) {
+          ref.read(messagesProvider(actorId).notifier).refresh();
+        }
       } catch (_) {}
 
       // Show a local notification banner for incoming messages so the user is
@@ -327,18 +351,25 @@ class SocketService {
         callState: 'incoming',
       );
 
-      // Phase 6: also show native CallKit / ConnectionService UI so the call
-      // appears even when the app is backgrounded.
-      // Mirrors SocketContext.tsx call:request → voipHandler.displayIncomingCall
-      try {
-        ref.read(callkitServiceProvider).displayIncomingCall(
-          callId: callId,
-          callerName: callerName,
-          callerAvatar: callerAvatar,
-          isVideo: callType == 'video',
-        );
-      } catch (e) {
-        debugPrint('[Socket] callkitService.displayIncomingCall error: $e');
+      // BUG #3: only raise the native CallKit / full-screen UI when the app is
+      // NOT foregrounded. When the app is open the in-app overlay above already
+      // shows the incoming call, so native CallKit would just cover it and force
+      // the user to answer through the OS UI. When backgrounded, we still show
+      // CallKit so the call surfaces. (On terminated devices the call arrives via
+      // a push, not this socket event, so CallKit is shown by the push handler.)
+      final isForeground =
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+      if (!isForeground) {
+        try {
+          ref.read(callkitServiceProvider).displayIncomingCall(
+            callId: callId,
+            callerName: callerName,
+            callerAvatar: callerAvatar,
+            isVideo: callType == 'video',
+          );
+        } catch (e) {
+          debugPrint('[Socket] callkitService.displayIncomingCall error: $e');
+        }
       }
 
       // Emit call:ringing to let the caller know we received the notification.

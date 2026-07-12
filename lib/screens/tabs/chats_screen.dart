@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../models/conversation.dart';
 import '../../state/conversations_provider.dart';
+import '../../state/messages_provider.dart';
 import '../../state/notifications_provider.dart';
 import '../../data/messages_repository.dart';
 import '../../widgets/widgets.dart';
@@ -75,6 +76,10 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
       await ref
           .read(messagesRepositoryProvider)
           .clearChat(convo.otherUser.id);
+      // Also empty the kept-alive message cache for this peer, or reopening the
+      // chat (e.g. from their profile) would re-show the deleted messages from
+      // the stale in-memory cache (BUG #5b).
+      ref.read(messagesProvider(convo.otherUser.id).notifier).clearAll();
       await ref.read(conversationsProvider.notifier).refresh();
     } catch (_) {
       if (mounted) {

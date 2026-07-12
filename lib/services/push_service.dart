@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/device_id.dart';
 import '../router/app_router.dart';
 import '../state/auth_provider.dart';
 import '../state/call_overlay_provider.dart';
@@ -312,6 +313,12 @@ class PushService {
         // Only platform — no tokens yet; skip to avoid a no-op PATCH
         debugPrint('[Push] syncTokens: no tokens to sync yet');
         return;
+      }
+
+      // Stable per-install id so the backend stores this device's tokens
+      // separately (multi-device) instead of overwriting another device's.
+      if (DeviceId.value.isNotEmpty) {
+        patch['device_id'] = DeviceId.value;
       }
 
       debugPrint('[Push] Syncing tokens to server (platform=$platform)');

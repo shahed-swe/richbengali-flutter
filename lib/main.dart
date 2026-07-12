@@ -8,12 +8,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'app.dart';
+import 'core/device_id.dart';
 import 'core/version_service.dart';
 import 'services/local_notifications_service.dart';
 import 'services/push_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Stable per-install id (used for multi-device push routing + socket handshake).
+  try {
+    await DeviceId.ensure();
+  } catch (e) {
+    debugPrint('[main] DeviceId.ensure error: $e');
+  }
 
   // DEBUG-ONLY diagnostic: print the exact exception behind any ErrorWidget to
   // the device log and show it as readable text. Release uses default handling.
