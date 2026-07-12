@@ -364,6 +364,7 @@ class SocketService {
           ref.read(callkitServiceProvider).displayIncomingCall(
             callId: callId,
             callerName: callerName,
+            callerId: callerId,
             callerAvatar: callerAvatar,
             isVideo: callType == 'video',
           );

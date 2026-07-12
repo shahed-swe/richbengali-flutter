@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_callkit_incoming/entities/android_params.dart';
@@ -25,27 +26,32 @@ const _kPendingAnsweredCall = 'pending_answered_call';
 const _kPendingAnsweredCallTime = 'pending_answered_call_time';
 const _kPendingCallMaxAgeMs = 2 * 60 * 1000; // 2 minutes
 
-Future<void> _storePendingAnsweredCall(String callId) async {
+/// Stores the full accepted-call info (callId + callerId + callType) so a true
+/// cold start can re-establish the call — not just the id (the caller id is
+/// required to route accept/start to the caller, and the type to join Agora
+/// with the right media).
+Future<void> _storePendingAnsweredCall(Map<String, dynamic> info) async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kPendingAnsweredCall, callId);
+    await prefs.setString(_kPendingAnsweredCall, jsonEncode(info));
     await prefs.setInt(
         _kPendingAnsweredCallTime, DateTime.now().millisecondsSinceEpoch);
-    debugPrint('[CallKit] Stored pending answered call: $callId');
+    debugPrint('[CallKit] Stored pending answered call: $info');
   } catch (e) {
     debugPrint('[CallKit] _storePendingAnsweredCall error: $e');
   }
 }
 
 /// Call once after the socket connects — mirrors SocketContext.tsx connect
-/// handler's PendingCallManager.consumePendingAnsweredCall() logic.
-Future<String?> consumePendingAnsweredCall() async {
+/// handler's PendingCallManager.consumePendingAnsweredCall() logic. Returns the
+/// stored call info map ({callId, callerId, callType}) or null.
+Future<Map<String, dynamic>?> consumePendingAnsweredCall() async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    final callId = prefs.getString(_kPendingAnsweredCall);
+    final raw = prefs.getString(_kPendingAnsweredCall);
     final storedAt = prefs.getInt(_kPendingAnsweredCallTime) ?? 0;
 
-    if (callId == null) return null;
+    if (raw == null) return null;
 
     final age = DateTime.now().millisecondsSinceEpoch - storedAt;
     if (age > _kPendingCallMaxAgeMs) {
@@ -57,8 +63,14 @@ Future<String?> consumePendingAnsweredCall() async {
 
     await prefs.remove(_kPendingAnsweredCall);
     await prefs.remove(_kPendingAnsweredCallTime);
-    debugPrint('[CallKit] Consumed pending answered call: $callId');
-    return callId;
+    debugPrint('[CallKit] Consumed pending answered call: $raw');
+
+    // Newer builds store JSON; older builds stored a bare call-id string.
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return {'callId': raw};
   } catch (e) {
     debugPrint('[CallKit] consumePendingAnsweredCall error: $e');
     return null;
@@ -106,6 +118,7 @@ class CallkitService {
   Future<void> displayIncomingCall({
     required String callId,
     required String callerName,
+    String callerId = '',
     String? callerAvatar,
     bool isVideo = false,
   }) async {
@@ -114,6 +127,7 @@ class CallkitService {
       await FlutterCallkitIncoming.showCallkitIncoming(_incomingParams(
         callId: callId,
         callerName: callerName,
+        callerId: callerId,
         callerAvatar: callerAvatar,
         isVideo: isVideo,
       ));
@@ -128,6 +142,7 @@ class CallkitService {
   /// fallbacks so foreground-socket and background-push agree.
   static Future<void> showIncomingFromPush(Map<String, dynamic> data) async {
     final callId = (data['callId'] ?? data['sessionId'] ?? '').toString();
+    final callerId = (data['callerId'] ?? data['senderId'] ?? '').toString();
     final callerName =
         (data['callerName'] ?? data['senderName'] ?? 'Unknown').toString();
     final callerAvatar = (data['callerAvatar'] ?? data['avatar'])?.toString();
@@ -136,6 +151,7 @@ class CallkitService {
       await FlutterCallkitIncoming.showCallkitIncoming(_incomingParams(
         callId: callId,
         callerName: callerName,
+        callerId: callerId,
         callerAvatar: callerAvatar,
         isVideo: callType == 'video',
       ));
@@ -158,13 +174,20 @@ class CallkitService {
   static CallKitParams _incomingParams({
     required String callId,
     required String callerName,
+    String callerId = '',
     String? callerAvatar,
     bool isVideo = false,
   }) {
     return CallKitParams(
-      // CallKit needs a real UUID; carry the true backend id in `extra`.
+      // CallKit needs a real UUID; carry the true backend id + caller info in
+      // `extra` so accept (even after a cold start) can route + join correctly.
       id: callKitId(callId),
-      extra: <String, dynamic>{'callId': callId},
+      extra: <String, dynamic>{
+        'callId': callId,
+        'callerId': callerId,
+        'callType': isVideo ? 'video' : 'audio',
+        'callerName': callerName,
+      },
       nameCaller: callerName,
       appName: 'RichBengali',
       avatar: callerAvatar,
@@ -299,29 +322,40 @@ class CallkitService {
     debugPrint('[CallKit] _onCallAccepted: $callId');
 
     try {
+      final extra = body['extra'] is Map
+          ? Map<String, dynamic>.from(body['extra'] as Map)
+          : const <String, dynamic>{};
       final overlay = _ref.read(callOverlayProvider);
 
+      // Prefer the ids carried in the CallKit payload (they survive a cold
+      // start); fall back to the live overlay for the warm/foreground path.
+      final callerId = (extra['callerId']?.toString().isNotEmpty ?? false)
+          ? extra['callerId'].toString()
+          : (overlay.otherUser?.id ?? '');
+      final callType = (extra['callType']?.toString().isNotEmpty ?? false)
+          ? extra['callType'].toString()
+          : (overlay.callType ?? 'audio');
+
       if (overlay.activeCall == null) {
-        // App was cold-started or backgrounded — store the call for when
-        // the socket reconnects and processPendingCall() is called.
-        await _storePendingAnsweredCall(callId);
+        // App was cold-started or fully closed — store the FULL call info so
+        // processPendingCall() (on socket connect) can route + join it.
+        await _storePendingAnsweredCall({
+          'callId': callId,
+          'callerId': callerId,
+          'callType': callType,
+        });
         debugPrint('[CallKit] App not in call state; stored as pending');
         return;
       }
 
       final socketService = _ref.read(socketServiceProvider);
-
-      // Emit accept + start to server. callerId = the other party (the caller),
-      // required so the backend routes call:accept back to them.
-      final otherUserId = overlay.otherUser?.id ?? '';
-      socketService.acceptCall(callId: callId, callerId: otherUserId);
-      socketService.startCall(callId: callId, otherUserId: otherUserId);
+      socketService.acceptCall(callId: callId, callerId: callerId);
+      socketService.startCall(callId: callId, otherUserId: callerId);
 
       // Transition overlay to ongoing
       _ref.read(callOverlayProvider.notifier).setCallState('ongoing');
 
       // Start Agora engine
-      final callType = overlay.callType ?? 'audio';
       final isVideo = callType == 'video';
       final callService = _ref.read(callServiceProvider);
       await callService.initEngine(isVideo: isVideo);
@@ -379,26 +413,42 @@ class CallkitService {
 
   Future<void> processPendingCall() async {
     try {
-      final callId = await consumePendingAnsweredCall();
-      if (callId == null) return;
+      final info = await consumePendingAnsweredCall();
+      if (info == null) return;
+      final callId = (info['callId'] ?? '').toString();
+      if (callId.isEmpty) return;
+      final callerId = (info['callerId'] ?? '').toString();
+      final callType = (info['callType'] ?? 'audio').toString();
+      final isVideo = callType == 'video';
 
-      debugPrint('[CallKit] processPendingCall: $callId');
+      debugPrint(
+          '[CallKit] processPendingCall: $callId (caller=$callerId, $callType)');
 
       final socketService = _ref.read(socketServiceProvider);
-      // Cold-start: overlay was cleared so we don't have the caller's id here.
-      // TODO: persist callerId with the pending call so accept can be routed
-      // after a true cold start (only matters once VoIP/FCM push is live).
-      socketService.acceptCall(callId: callId, callerId: '');
-      socketService.startCall(callId: callId, otherUserId: '');
+      socketService.acceptCall(callId: callId, callerId: callerId);
+      socketService.startCall(callId: callId, otherUserId: callerId);
 
-      // Set minimal ongoing state so the call screen appears.
-      // We don't have otherUser info after cold start — overlay was cleared.
+      // Show the ongoing call screen.
       _ref.read(callOverlayProvider.notifier).setActiveCall(
-        ActiveCall(sessionId: callId),
-        null,
-        callType: 'audio',
-        callState: 'ongoing',
-      );
+            ActiveCall(sessionId: callId),
+            callerId.isNotEmpty ? CallOverlayUser(id: callerId, name: '') : null,
+            callType: callType,
+            callState: 'ongoing',
+          );
+
+      // Actually join the Agora channel — the cold-start path previously
+      // skipped this, so accepting opened the app but never connected media.
+      try {
+        final callService = _ref.read(callServiceProvider);
+        await callService.initEngine(isVideo: isVideo);
+        await callService.joinChannel(
+          sessionId: callId,
+          isVideo: isVideo,
+          isMuted: false,
+        );
+      } catch (e) {
+        debugPrint('[CallKit] processPendingCall join error: $e');
+      }
     } catch (e) {
       debugPrint('[CallKit] processPendingCall error: $e');
     }
