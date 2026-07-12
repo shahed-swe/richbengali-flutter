@@ -27,7 +27,7 @@ import UIKit
 // =============================================================================
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
 
     // -------------------------------------------------------------------------
     // CallKit provider — one provider per app lifetime.
@@ -57,19 +57,11 @@ import UIKit
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
 
-        // Register Flutter plugins first (mandatory).
-        GeneratedPluginRegistrant.register(with: self)
-
-        // Set up the VoIP MethodChannel after the Flutter engine is running.
-        if let controller = window?.rootViewController as? FlutterViewController {
-            voipChannel = FlutterMethodChannel(
-                name: "com.richbengali.voip",
-                binaryMessenger: controller.binaryMessenger
-            )
-            voipChannel?.setMethodCallHandler { [weak self] call, result in
-                self?.handleDartCall(call, result: result)
-            }
-        }
+        // NOTE (UIScene lifecycle, iOS 26): plugin registration and the VoIP
+        // MethodChannel are set up in didInitializeImplicitFlutterEngine(_:)
+        // below — NOT here. Registering plugins or touching
+        // window?.rootViewController in didFinishLaunching now hands Swift
+        // plugins a nil registrar and crashes (EXC_BAD_ACCESS).
 
         // Configure CallKit CXProvider.
         let config = CXProviderConfiguration()
@@ -90,6 +82,24 @@ import UIKit
         voipRegistry?.desiredPushTypes = [.voIP]
 
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    // -------------------------------------------------------------------------
+    // UIScene lifecycle: called once the implicit Flutter engine is ready. This
+    // is the correct place to register plugins and wire MethodChannels — the
+    // registrar/messenger is guaranteed valid here (fixes the iOS 26 nil-registrar
+    // launch crash in flutter_callkit_incoming).
+    // -------------------------------------------------------------------------
+    func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+        GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+        voipChannel = FlutterMethodChannel(
+            name: "com.richbengali.voip",
+            binaryMessenger: engineBridge.applicationRegistrar.messenger()
+        )
+        voipChannel?.setMethodCallHandler { [weak self] call, result in
+            self?.handleDartCall(call, result: result)
+        }
     }
 
     // -------------------------------------------------------------------------

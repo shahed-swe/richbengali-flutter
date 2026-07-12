@@ -106,5 +106,33 @@
 		<!-- flutter_native_splash added this key -->
 		<key>UIStatusBarHidden</key>
 		<false/>
+
+		<!-- ----------------------------------------------------------------
+		     UIScene lifecycle (required on iOS 26). Without this, Swift plugins
+		     (e.g. flutter_callkit_incoming) intermittently get a nil registrar
+		     during launch and crash with EXC_BAD_ACCESS. FlutterSceneDelegate is
+		     provided by the Flutter engine.
+		     ---------------------------------------------------------------- -->
+		<key>UIApplicationSceneManifest</key>
+		<dict>
+			<key>UIApplicationSupportsMultipleScenes</key>
+			<false/>
+			<key>UISceneConfigurations</key>
+			<dict>
+				<key>UIWindowSceneSessionRoleApplication</key>
+				<array>
+					<dict>
+						<key>UISceneClassName</key>
+						<string>UIWindowScene</string>
+						<key>UISceneDelegateClassName</key>
+						<string>FlutterSceneDelegate</string>
+						<key>UISceneConfigurationName</key>
+						<string>flutter</string>
+						<key>UISceneStoryboardFile</key>
+						<string>Main</string>
+					</dict>
+				</array>
+			</dict>
+		</dict>
 	</dict>
 </plist>
