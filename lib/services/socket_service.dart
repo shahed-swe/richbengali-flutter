@@ -76,7 +76,11 @@ class SocketService {
   /// Connect using a valid JWT token. Derives userId via AppJwt.
   void connect(String token, Ref ref) {
     final userId = AppJwt.getUserIdFromToken(token);
-    if (userId == null) return;
+    if (userId == null) {
+      debugPrint('[Socket] connect() ABORTED — no userId from token');
+      return;
+    }
+    debugPrint('[Socket] connect() → ${Env.apiBase} as userId=$userId');
 
     // Disconnect existing socket before creating a new one
     _socket?.disconnect();
@@ -97,6 +101,7 @@ class SocketService {
     newSocket.onConnect((_) {
       _connected = true;
       _connectionController.add(true);
+      debugPrint('[Socket] ✅ CONNECTED');
       // Phase 6: cold-start pending call recovery.
       // Mirrors SocketContext.tsx onConnect → PendingCallManager.consumePendingAnsweredCall
       try {
@@ -111,9 +116,10 @@ class SocketService {
       _connectionController.add(false);
     });
 
-    newSocket.onConnectError((_) {
+    newSocket.onConnectError((err) {
       _connected = false;
       _connectionController.add(false);
+      debugPrint('[Socket] ❌ CONNECT ERROR: $err');
     });
 
     // Chat events — invalidate providers

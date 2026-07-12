@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../state/auth_provider.dart';
@@ -20,7 +21,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
   final notifier = ref.watch(routerNotifierProvider);
 
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/splash',
     refreshListenable: notifier,
     debugLogDiagnostics: false,
 
@@ -46,9 +47,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         return '/me/subscription?status=$status';
       }
 
+      final path = uri.path;
+
+      // --- Wait for the stored session to load before routing, so a cold start
+      //     (e.g. launched by tapping a notification) never flashes /login. ---
+      if (!notifier.hydrated) {
+        return path == '/splash' ? null : '/splash';
+      }
+      // Hydrated: leave the splash for the right destination.
+      if (path == '/splash') {
+        return notifier.isLoggedIn ? '/home' : '/login';
+      }
+
       // --- Auth gating ---
       final isLoggedIn = notifier.isLoggedIn;
-      final path = uri.path;
 
       final isAuthRoute = path == '/login' || path == '/register' || path == '/forgot';
 
@@ -62,6 +74,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     },
 
     routes: [
+      // Splash — shown while the stored session is loading on startup.
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const _SplashScreen(),
+      ),
       // Auth routes
       GoRoute(
         path: '/login',
@@ -186,3 +203,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+// ---------------------------------------------------------------------------
+// Splash — a neutral loading screen shown until auth hydration completes, so a
+// cold start never flashes the login screen.
+// ---------------------------------------------------------------------------
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
+}

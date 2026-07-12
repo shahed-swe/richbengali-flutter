@@ -56,6 +56,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   // Picture-in-Picture: floating call window when the app is backgrounded.
   CallPipManager? _pip;
   bool _pipSetupStarted = false;
+  bool _inPip = false;
   int? _pipConfiguredRemoteUid;
   AppLifecycleState _lastLifecycle = AppLifecycleState.resumed;
 
@@ -129,6 +130,10 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
       if (engine == null) return;
       final pip = CallPipManager(engine);
       _pip = pip;
+      // Hide the call controls while floating in PiP; restore on return.
+      pip.onPipStateChanged = (active) {
+        if (mounted) setState(() => _inPip = active);
+      };
       await pip.init();
       if (!pip.supported || !mounted) return;
 
@@ -156,6 +161,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
     final pip = _pip;
     _pip = null;
     _pipSetupStarted = false;
+    _inPip = false;
     _pipConfiguredRemoteUid = null;
     try {
       ref
@@ -453,6 +459,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
         );
       case 'ongoing':
         return _OngoingUI(
+          inPip: _inPip,
           overlay: overlay,
           durationText: _formattedDuration,
           durationSeconds: _durationSeconds,
@@ -688,6 +695,7 @@ class _OngoingUI extends ConsumerWidget {
     required this.overlay,
     required this.durationText,
     required this.durationSeconds,
+    required this.inPip,
     required this.isVideoPaused,
     required this.isBeautyModalVisible,
     required this.pipX,
@@ -708,6 +716,9 @@ class _OngoingUI extends ConsumerWidget {
   final CallOverlayState overlay;
   final String durationText;
   final int durationSeconds;
+  /// True while the call is floating in a Picture-in-Picture window — hide all
+  /// controls/buttons in that mode (Android shrinks the whole activity).
+  final bool inPip;
   final bool isVideoPaused;
   final bool isBeautyModalVisible;
   final double pipX;
@@ -779,8 +790,9 @@ class _OngoingUI extends ConsumerWidget {
             ),
           ),
 
-        // Top header â€” minimize + timer
-        SafeArea(
+        // Top header â€” minimize + timer (hidden while floating in PiP)
+        if (!inPip)
+          SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
@@ -834,8 +846,9 @@ class _OngoingUI extends ConsumerWidget {
           ),
         ),
 
-        // Draggable local PiP (video only)
-        if (isVideo && callService.engine != null)
+        // Draggable local self-camera — hidden in PiP so only the remote
+        // video shows (otherwise the self-view overlaps in the tiny window).
+        if (!inPip && isVideo && callService.engine != null)
           Positioned(
             left: pipX,
             top: pipY,
@@ -889,8 +902,9 @@ class _OngoingUI extends ConsumerWidget {
             ),
           ),
 
-        // Bottom controls
-        Positioned(
+        // Bottom controls (hidden while floating in PiP — video only)
+        if (!inPip)
+          Positioned(
           left: 0,
           right: 0,
           bottom: 0,

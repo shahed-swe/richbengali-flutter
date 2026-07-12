@@ -1,8 +1,9 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../router/app_router.dart';
 import '../state/auth_provider.dart';
 import '../state/call_overlay_provider.dart';
 import '../state/me_provider.dart';
@@ -162,6 +163,76 @@ class PushService {
     } catch (e) {
       debugPrint('[Push] onMessage setup error: $e');
     }
+
+    // --- Notification-tap deep linking ---
+    await _setupNotificationTapHandlers();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notification-tap deep linking → open the exact chat (not the chat list).
+  // Handles: app terminated (getInitialMessage), app backgrounded
+  // (onMessageOpenedApp), and a pending local-notification tap payload.
+  // ---------------------------------------------------------------------------
+
+  Future<void> _setupNotificationTapHandlers() async {
+    // App backgrounded → user tapped an FCM notification.
+    try {
+      FirebaseMessaging.onMessageOpenedApp.listen((m) {
+        _navigateFromData(m.data);
+      });
+    } catch (e) {
+      debugPrint('[Push] onMessageOpenedApp setup error: $e');
+    }
+
+    // App was terminated and launched by tapping an FCM notification.
+    try {
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) {
+        _deferNavigate(() => _navigateFromData(initial.data));
+      }
+    } catch (e) {
+      debugPrint('[Push] getInitialMessage error: $e');
+    }
+
+    // A tapped local notification persisted a route (foreground/terminated).
+    try {
+      final pending = await LocalNotificationsService.consumePendingPayload();
+      if (pending != null && pending.isNotEmpty) {
+        _deferNavigate(() => _go(pending));
+      }
+    } catch (e) {
+      debugPrint('[Push] pending payload error: $e');
+    }
+  }
+
+  /// Navigate to the chat referenced by an FCM data payload.
+  void _navigateFromData(Map<String, dynamic> data) {
+    final type = data['type']?.toString();
+    if (type == 'message') {
+      final senderId = (data['senderId'] ??
+              data['actor_id'] ??
+              data['actorId'] ??
+              '')
+          .toString();
+      if (senderId.isNotEmpty) _go('/chats/$senderId');
+    }
+    // Calls are handled by CallKit / the call overlay, not chat navigation.
+  }
+
+  void _go(String route) {
+    try {
+      _ref.read(goRouterProvider).go(route);
+    } catch (e) {
+      debugPrint('[Push] navigation error: $e');
+    }
+  }
+
+  /// Defer navigation to the next frame so the router/first screen is ready
+  /// (important on cold start from a terminated tap).
+  void _deferNavigate(void Function() action) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 400), action);
+    });
   }
 
   Future<void> _acquireFcmToken() async {
