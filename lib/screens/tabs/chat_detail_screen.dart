@@ -46,6 +46,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   StreamSubscription<Map<String, dynamic>>? _chatMessageSub;
   StreamSubscription<Map<String, dynamic>>? _chatMessageDeletedSub;
   StreamSubscription<void>? _chatClearSub;
+  StreamSubscription<String>? _chatSeenSub;
 
   // AnimationControllers keyed by messageId
   final Map<String, AnimationController> _animControllers = {};
@@ -75,6 +76,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _chatMessageSub?.cancel();
     _chatMessageDeletedSub?.cancel();
     _chatClearSub?.cancel();
+    _chatSeenSub?.cancel();
     for (final c in _animControllers.values) {
       c.dispose();
     }
@@ -154,6 +156,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
 
     _chatClearSub = socket.onChatClear.listen((_) {
       ref.read(messagesProvider(_otherUserId).notifier).clearAll();
+    });
+
+    // Peer opened the chat → mark our messages to them as seen (double tick).
+    _chatSeenSub = socket.onChatSeen.listen((byUserId) {
+      if (byUserId == _otherUserId) {
+        ref.read(messagesProvider(_otherUserId).notifier).markAllSeen();
+      }
     });
   }
 
@@ -612,6 +621,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   }
 
   Widget _buildBubble(Message msg, String myId) {
+    // Call-event system message (e.g. "📞 Call ended · 17m 13s") — centered.
+    if (msg.content.startsWith('📞')) {
+      return _buildCallEventRow(msg);
+    }
+
     final isOwn = msg.senderId == myId;
     final isSelected = _selectedMessageId == msg.id;
 
@@ -664,18 +678,96 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                   ? null
                   : Border.all(color: const Color(0xFFE2E8F0)),
             ),
-            child: Text(
-              msg.content,
-              style: TextStyle(
-                fontSize: 15,
-                color: isOwn ? Colors.white : const Color(0xFF0F172A),
-                height: 1.4,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  msg.content,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: isOwn ? Colors.white : const Color(0xFF0F172A),
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                // Timestamp (+ read-receipt tick for own messages).
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatMessageTime(msg.createdAt),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: isOwn
+                            ? Colors.white.withValues(alpha: 0.75)
+                            : const Color(0xFF94A3B8),
+                      ),
+                    ),
+                    if (isOwn) ...[
+                      const SizedBox(width: 3),
+                      Icon(
+                        msg.seen ? Icons.done_all : Icons.done,
+                        size: 13,
+                        color: msg.seen
+                            ? const Color(0xFF93C5FD)
+                            : Colors.white.withValues(alpha: 0.75),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  /// Centered "call ended" system row shown inline in the chat thread.
+  Widget _buildCallEventRow(Message msg) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.call, size: 13, color: Color(0xFF64748B)),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                msg.content.replaceFirst('📞', '').trim(),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              _formatMessageTime(msg.createdAt),
+              style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Formats an ISO-8601 message timestamp as a local "h:mm AM/PM" string.
+  String _formatMessageTime(String iso) {
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return '';
+    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final period = dt.hour < 12 ? 'AM' : 'PM';
+    return '$hour:$minute $period';
   }
 
   Widget _buildInputToolbar(String myId) {

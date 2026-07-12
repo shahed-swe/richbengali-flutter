@@ -44,6 +44,8 @@ class SocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _chatClearController = StreamController<void>.broadcast();
   final _connectionController = StreamController<bool>.broadcast();
+  // Emits the peer user id who just saw our messages (read receipts).
+  final _chatSeenController = StreamController<String>.broadcast();
 
   // Phase 5 — earnings updates
   final _earningsController =
@@ -57,6 +59,8 @@ class SocketService {
       _chatMessageDeletedController.stream;
   Stream<void> get onChatClear => _chatClearController.stream;
   Stream<bool> get onConnectionChange => _connectionController.stream;
+  /// Emits a peer user id when they have seen our messages (read receipt).
+  Stream<String> get onChatSeen => _chatSeenController.stream;
 
   /// Phase 5 — stream of earnings:update payloads
   Stream<Map<String, dynamic>> get onEarningsUpdate =>
@@ -272,6 +276,16 @@ class SocketService {
       _chatClearController.add(null);
     });
 
+    // chat:seen — the peer opened/viewed the chat, so our messages to them are
+    // now read. Payload: { byUserId }.
+    newSocket.on('chat:seen', (data) {
+      final payload = _toMap(data);
+      final by = payload['byUserId']?.toString() ??
+          payload['userId']?.toString() ??
+          '';
+      if (by.isNotEmpty) _chatSeenController.add(by);
+    });
+
     // -----------------------------------------------------------------------
     // Phase 5: Call signalling events — mirrors SocketContext.tsx handlers
     // -----------------------------------------------------------------------
@@ -475,6 +489,7 @@ class SocketService {
     _chatClearController.close();
     _connectionController.close();
     _earningsController.close();
+    _chatSeenController.close();
   }
 }
 

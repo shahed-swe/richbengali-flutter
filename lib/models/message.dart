@@ -7,6 +7,9 @@ class Message {
   final String? roomId;
   final String createdAt;
 
+  /// Read receipt — true once the recipient has seen this message.
+  final bool seen;
+
   const Message({
     required this.id,
     required this.senderId,
@@ -14,6 +17,7 @@ class Message {
     required this.content,
     this.roomId,
     required this.createdAt,
+    this.seen = false,
   });
 
   bool isOwnMessage(String myId) => senderId == myId;
@@ -26,6 +30,9 @@ class Message {
       content: (json['content'] ?? json['text'] ?? '').toString(),
       roomId: json['room_id']?.toString(),
       createdAt: (json['created_at'] ?? json['createdAt'] ?? '').toString(),
+      seen: json['seen'] == true ||
+          json['is_read'] == true ||
+          json['read_at'] != null,
     );
   }
 
@@ -36,6 +43,7 @@ class Message {
         'content': content,
         'room_id': roomId,
         'created_at': createdAt,
+        'seen': seen,
       };
 
   Message copyWith({
@@ -45,6 +53,7 @@ class Message {
     String? content,
     String? roomId,
     String? createdAt,
+    bool? seen,
   }) {
     return Message(
       id: id ?? this.id,
@@ -53,6 +62,7 @@ class Message {
       content: content ?? this.content,
       roomId: roomId ?? this.roomId,
       createdAt: createdAt ?? this.createdAt,
+      seen: seen ?? this.seen,
     );
   }
 }

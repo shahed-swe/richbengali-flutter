@@ -134,6 +134,19 @@ class MessagesNotifier extends Notifier<MessagesState> {
     }
   }
 
+  /// Mark all messages as seen — called when the peer opens/views the chat
+  /// (server `chat:seen`). Only own-message bubbles display the read tick, so
+  /// marking the whole list is harmless and keeps it simple.
+  void markAllSeen() {
+    final s = state;
+    if (s.messages.every((m) => m.seen)) return;
+    state = s.copyWith(
+      messages: [
+        for (final m in s.messages) m.seen ? m : m.copyWith(seen: true),
+      ],
+    );
+  }
+
   /// Remove a message by id.
   void removeMessage(String messageId) {
     final s = state;
