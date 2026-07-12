@@ -320,43 +320,66 @@ class CallkitService {
   Future<void> _onCallAccepted(
       String callId, Map<String, dynamic> body) async {
     debugPrint('[CallKit] _onCallAccepted: $callId');
+    final extra = body['extra'] is Map
+        ? Map<String, dynamic>.from(body['extra'] as Map)
+        : const <String, dynamic>{};
+    final overlay = _ref.read(callOverlayProvider);
+    // Prefer the ids carried in the CallKit payload (they survive a cold start);
+    // fall back to the live overlay for the warm/foreground path.
+    final callerId = (extra['callerId']?.toString().isNotEmpty ?? false)
+        ? extra['callerId'].toString()
+        : (overlay.otherUser?.id ?? '');
+    final callType = (extra['callType']?.toString().isNotEmpty ?? false)
+        ? extra['callType'].toString()
+        : (overlay.callType ?? 'audio');
+    await acceptIncomingCall(
+        callId: callId, callerId: callerId, callType: callType);
+  }
 
+  /// Connects an accepted incoming call — the SINGLE path used by the in-app
+  /// UI, the flutter_callkit_incoming native UI, the iOS VoIP CallKit, and the
+  /// cold-start pending flow. If the socket isn't up yet (a true cold start
+  /// still booting), the call is stored as pending and connected by
+  /// processPendingCall() once the socket connects. Otherwise it emits
+  /// accept/start to the server AND joins the Agora channel so media actually
+  /// flows (the missing join was why "accept" opened a dead call).
+  Future<void> acceptIncomingCall({
+    required String callId,
+    String callerId = '',
+    String callType = 'audio',
+  }) async {
+    if (callId.isEmpty) return;
     try {
-      final extra = body['extra'] is Map
-          ? Map<String, dynamic>.from(body['extra'] as Map)
-          : const <String, dynamic>{};
-      final overlay = _ref.read(callOverlayProvider);
-
-      // Prefer the ids carried in the CallKit payload (they survive a cold
-      // start); fall back to the live overlay for the warm/foreground path.
-      final callerId = (extra['callerId']?.toString().isNotEmpty ?? false)
-          ? extra['callerId'].toString()
-          : (overlay.otherUser?.id ?? '');
-      final callType = (extra['callType']?.toString().isNotEmpty ?? false)
-          ? extra['callType'].toString()
-          : (overlay.callType ?? 'audio');
-
-      if (overlay.activeCall == null) {
-        // App was cold-started or fully closed — store the FULL call info so
-        // processPendingCall() (on socket connect) can route + join it.
+      final socketService = _ref.read(socketServiceProvider);
+      if (!socketService.connected) {
         await _storePendingAnsweredCall({
           'callId': callId,
           'callerId': callerId,
           'callType': callType,
         });
-        debugPrint('[CallKit] App not in call state; stored as pending');
+        debugPrint('[CallKit] Socket down; stored pending accept: $callId');
         return;
       }
 
-      final socketService = _ref.read(socketServiceProvider);
+      final isVideo = callType == 'video';
       socketService.acceptCall(callId: callId, callerId: callerId);
       socketService.startCall(callId: callId, otherUserId: callerId);
 
-      // Transition overlay to ongoing
-      _ref.read(callOverlayProvider.notifier).setCallState('ongoing');
+      final overlay = _ref.read(callOverlayProvider);
+      if (overlay.activeCall == null) {
+        _ref.read(callOverlayProvider.notifier).setActiveCall(
+              ActiveCall(sessionId: callId),
+              callerId.isNotEmpty
+                  ? CallOverlayUser(
+                      id: callerId, name: overlay.otherUser?.name ?? '')
+                  : overlay.otherUser,
+              callType: callType,
+              callState: 'ongoing',
+            );
+      } else {
+        _ref.read(callOverlayProvider.notifier).setCallState('ongoing');
+      }
 
-      // Start Agora engine
-      final isVideo = callType == 'video';
       final callService = _ref.read(callServiceProvider);
       await callService.initEngine(isVideo: isVideo);
       await callService.joinChannel(
@@ -364,8 +387,9 @@ class CallkitService {
         isVideo: isVideo,
         isMuted: overlay.isMuted,
       );
+      debugPrint('[CallKit] acceptIncomingCall connected: $callId');
     } catch (e) {
-      debugPrint('[CallKit] _onCallAccepted error: $e');
+      debugPrint('[CallKit] acceptIncomingCall error: $e');
     }
   }
 
@@ -417,38 +441,12 @@ class CallkitService {
       if (info == null) return;
       final callId = (info['callId'] ?? '').toString();
       if (callId.isEmpty) return;
-      final callerId = (info['callerId'] ?? '').toString();
-      final callType = (info['callType'] ?? 'audio').toString();
-      final isVideo = callType == 'video';
-
-      debugPrint(
-          '[CallKit] processPendingCall: $callId (caller=$callerId, $callType)');
-
-      final socketService = _ref.read(socketServiceProvider);
-      socketService.acceptCall(callId: callId, callerId: callerId);
-      socketService.startCall(callId: callId, otherUserId: callerId);
-
-      // Show the ongoing call screen.
-      _ref.read(callOverlayProvider.notifier).setActiveCall(
-            ActiveCall(sessionId: callId),
-            callerId.isNotEmpty ? CallOverlayUser(id: callerId, name: '') : null,
-            callType: callType,
-            callState: 'ongoing',
-          );
-
-      // Actually join the Agora channel — the cold-start path previously
-      // skipped this, so accepting opened the app but never connected media.
-      try {
-        final callService = _ref.read(callServiceProvider);
-        await callService.initEngine(isVideo: isVideo);
-        await callService.joinChannel(
-          sessionId: callId,
-          isVideo: isVideo,
-          isMuted: false,
-        );
-      } catch (e) {
-        debugPrint('[CallKit] processPendingCall join error: $e');
-      }
+      debugPrint('[CallKit] processPendingCall: $callId');
+      await acceptIncomingCall(
+        callId: callId,
+        callerId: (info['callerId'] ?? '').toString(),
+        callType: (info['callType'] ?? 'audio').toString(),
+      );
     } catch (e) {
       debugPrint('[CallKit] processPendingCall error: $e');
     }

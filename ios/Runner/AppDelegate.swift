@@ -49,6 +49,15 @@ import UIKit
     // (fixes the startup race where the very first token was dropped).
     private var cachedVoipToken: String?
 
+    // Backend ids for the current VoIP-pushed call, so an accept can carry the
+    // real callId/callerId/callType to Dart (needed to join Agora + route the
+    // accept). Also cached so a cold-start accept survives the engine not being
+    // ready yet — Dart pulls it via `getPendingAccept`.
+    private var pendingVoipCallId: String?
+    private var pendingVoipCallerId: String?
+    private var pendingVoipCallType: String?
+    private var cachedAccept: [String: Any]?
+
     // -------------------------------------------------------------------------
     // application(_:didFinishLaunchingWithOptions:)
     // -------------------------------------------------------------------------
@@ -129,6 +138,12 @@ import UIKit
             // PushKit already issued one before the channel handler was installed.
             result(cachedVoipToken)
 
+        case "getPendingAccept":
+            // Dart pulls a native CallKit "accept" that happened before the
+            // engine was ready (cold start from a VoIP-push call).
+            result(cachedAccept)
+            cachedAccept = nil
+
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -199,8 +214,15 @@ extension AppDelegate: PKPushRegistryDelegate {
             ?? (data["senderName"] as? String) ?? "Unknown"
         let callId = (data["callId"] as? String)
             ?? (data["sessionId"] as? String) ?? UUID().uuidString
+        let callerId = (data["callerId"] as? String)
+            ?? (data["senderId"] as? String) ?? ""
         let callType = data["callType"] as? String ?? "audio"
         let hasVideo   = callType == "video"
+
+        // Remember the ids so a subsequent accept can join + route the call.
+        pendingVoipCallId = callId
+        pendingVoipCallerId = callerId
+        pendingVoipCallType = callType
 
         // We MUST call report before completion() — iOS requires a CallKit report
         // for every VoIP push or the app will be penalised / killed.
@@ -212,6 +234,7 @@ extension AppDelegate: PKPushRegistryDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.voipChannel?.invokeMethod("onVoipCallReceived", arguments: [
                 "callId":     callId,
+                "callerId":   callerId,
                 "callerName": callerName,
                 "callType":   callType,
             ])
@@ -241,10 +264,16 @@ extension AppDelegate: CXProviderDelegate {
     // User tapped "Accept" on the native CallKit UI.
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         debugPrint("[AppDelegate] CallKit: user answered call \(action.callUUID)")
+        let info: [String: Any] = [
+            "callId": pendingVoipCallId ?? "",
+            "callerId": pendingVoipCallerId ?? "",
+            "callType": pendingVoipCallType ?? "audio",
+        ]
+        // Cache so a cold-start accept (engine not ready) isn't lost — Dart
+        // pulls it via getPendingAccept once it's up.
+        cachedAccept = info
         DispatchQueue.main.async { [weak self] in
-            self?.voipChannel?.invokeMethod("onCallKitAnswer", arguments: [
-                "callUUID": action.callUUID.uuidString,
-            ])
+            self?.voipChannel?.invokeMethod("onCallKitAnswer", arguments: info)
         }
         action.fulfill()
     }

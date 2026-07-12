@@ -56,6 +56,25 @@ class VoipPushService {
         debugPrint('[VoipPush] VoIP token (cached from native): $cached');
         onTokenReceived?.call(cached);
       }
+
+      // Pull any native CallKit "accept" that happened before Dart was ready
+      // (cold start from a VoIP-push call) and connect it now.
+      try {
+        final pending = await _channel.invokeMethod('getPendingAccept');
+        if (pending is Map) {
+          final m = Map<String, dynamic>.from(pending);
+          final callId = (m['callId'] ?? '').toString();
+          if (callId.isNotEmpty) {
+            await _ref.read(callkitServiceProvider).acceptIncomingCall(
+                  callId: callId,
+                  callerId: (m['callerId'] ?? '').toString(),
+                  callType: (m['callType'] ?? 'audio').toString(),
+                );
+          }
+        }
+      } catch (e) {
+        debugPrint('[VoipPush] getPendingAccept error: $e');
+      }
       debugPrint('[VoipPush] iOS VoIP registration requested via platform channel');
     } on MissingPluginException {
       // Native side not yet implemented — this is expected until Phase 8
@@ -80,12 +99,28 @@ class VoipPushService {
         }
 
       case 'onVoipCallReceived':
-        // Incoming VoIP push payload → show CallKit UI
+        // Incoming VoIP push payload (native AppDelegate already reported it to
+        // CallKit) — just log; the accept flows back via onCallKitAnswer.
         final raw = call.arguments;
         final payload = raw is Map
             ? Map<String, dynamic>.from(raw)
             : <String, dynamic>{};
         await _handleIncomingVoipCall(payload);
+
+      case 'onCallKitAnswer':
+        // User tapped Accept on the native VoIP CallKit — connect it through
+        // the one accept path (joins Agora, routes accept to the caller).
+        final raw = call.arguments;
+        final m =
+            raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+        final callId = (m['callId'] ?? '').toString();
+        if (callId.isNotEmpty) {
+          await _ref.read(callkitServiceProvider).acceptIncomingCall(
+                callId: callId,
+                callerId: (m['callerId'] ?? '').toString(),
+                callType: (m['callType'] ?? 'audio').toString(),
+              );
+        }
 
       default:
         debugPrint('[VoipPush] Unknown method: ${call.method}');
@@ -93,27 +128,12 @@ class VoipPushService {
   }
 
   Future<void> _handleIncomingVoipCall(Map<String, dynamic> payload) async {
-    try {
-      final callId = payload['callId']?.toString() ??
-          payload['sessionId']?.toString() ??
-          DateTime.now().millisecondsSinceEpoch.toString();
-      final callerName = payload['callerName']?.toString() ?? 'Unknown';
-      final callerAvatar = payload['callerAvatar']?.toString();
-      final callType = payload['callType']?.toString() ?? 'audio';
-      final isVideo = callType == 'video';
-
-      debugPrint('[VoipPush] Incoming VoIP call: $callId from $callerName');
-
-      final callkitService = _ref.read(callkitServiceProvider);
-      await callkitService.displayIncomingCall(
-        callId: callId,
-        callerName: callerName,
-        callerAvatar: callerAvatar,
-        isVideo: isVideo,
-      );
-    } catch (e) {
-      debugPrint('[VoipPush] _handleIncomingVoipCall error: $e');
-    }
+    // The native AppDelegate already reports the VoIP call to CallKit
+    // (required synchronously in the PushKit handler), and the accept comes
+    // back via onCallKitAnswer → acceptIncomingCall. Showing a second CallKit
+    // here would double the incoming-call UI, so we only log.
+    debugPrint(
+        '[VoipPush] Incoming VoIP call (native CallKit shows it): ${payload['callId']}');
   }
 
   void dispose() {
