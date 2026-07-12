@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../core/version_service.dart';
 import '../../data/auth_repository.dart';
 import '../../theme/theme.dart';
 import '../../widgets/widgets.dart';
@@ -153,6 +154,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 24),
                     _LegalFooter(),
+                    const SizedBox(height: 12),
+                    const _VersionLabel(),
                     const SizedBox(height: 16),
                   ],
                 ),
@@ -494,6 +497,30 @@ class _PinkButton extends StatelessWidget {
               )
             : Text(label, style: AppTextStyles.textBaseBold.copyWith(color: AppColors.white)),
       ),
+    );
+  }
+}
+
+// Shows the running app version (e.g. "v2.0.4 (23)"). Reads the real bundle
+// version at runtime, so it updates automatically on every release.
+class _VersionLabel extends StatelessWidget {
+  const _VersionLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: VersionService.displayVersion(),
+      builder: (context, snapshot) {
+        final v = snapshot.data ?? '';
+        return SizedBox(
+          width: double.infinity,
+          child: Text(
+            v,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.textXs.copyWith(color: AppColors.gray400),
+          ),
+        );
+      },
     );
   }
 }

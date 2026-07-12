@@ -22,6 +22,17 @@ class VersionService {
   );
   static const _versionKey = 'app_version';
 
+  /// Human-readable running version for display (e.g. "2.0.4 (23)"). Reads the
+  /// real bundle version at runtime, so it auto-updates with every release.
+  static Future<String> displayVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      return 'v${info.version} (${info.buildNumber})';
+    } catch (_) {
+      return '';
+    }
+  }
+
   /// Returns the last version string we stored (null if first install).
   static Future<String?> _storedVersion() async {
     try {
