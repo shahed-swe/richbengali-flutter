@@ -8,6 +8,7 @@ import 'screens/call/ongoing_call_screen.dart';
 import 'services/callkit_service.dart';
 import 'services/local_notifications_service.dart';
 import 'services/push_service.dart';
+import 'services/socket_service.dart';
 import 'services/voip_push_service.dart';
 import 'state/auth_provider.dart';
 import 'state/conversations_provider.dart';
@@ -39,17 +40,28 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
   @override
   void initState() {
     super.initState();
+    debugPrint('[App] initState (UI reached)');
     WidgetsBinding.instance.addObserver(this);
 
-    // Set up CallKit event listeners immediately (before auth).
-    // Mirrors VoipNotificationHandler.initialize() called on App.tsx mount.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        ref.read(callkitServiceProvider).setupListeners();
-      } catch (e) {
-        debugPrint('[App] callkitService.setupListeners error: $e');
+    // Kick core services NOW, synchronously in initState — NOT in a post-frame
+    // callback and NOT relying on build(). On a headless cold-start from a call
+    // push, the app is launched without a foreground activity, so no frame
+    // renders and build() never runs; anything deferred there (and any lazy
+    // provider only read in build) would never start. We must:
+    //  • set up CallKit listeners,
+    //  • force-create the socket service so it connects once auth hydrates
+    //    (its onConnect then recovers the accepted call), and
+    //  • start push services if already logged in.
+    try {
+      ref.read(callkitServiceProvider).setupListeners();
+      ref.read(socketServiceProvider); // force-create → connect on auth hydrate
+      final auth = ref.read(authProvider);
+      if (auth.isLoggedIn) {
+        _startPushServices();
       }
-    });
+    } catch (e) {
+      debugPrint('[App] initState service kick error: $e');
+    }
   }
 
   @override

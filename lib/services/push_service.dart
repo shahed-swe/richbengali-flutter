@@ -349,6 +349,10 @@ class PushService {
         final callId =
             (message.data['callId'] ?? message.data['sessionId'] ?? '')
                 .toString();
+        final callerId = (message.data['callerId'] ??
+                message.data['senderId'] ??
+                '')
+            .toString();
         final callerName = (message.data['callerName'] ??
                 message.data['senderName'] ??
                 'Unknown')
@@ -364,6 +368,7 @@ class PushService {
           await callkitService.displayIncomingCall(
             callId: callId,
             callerName: callerName,
+            callerId: callerId,
             callerAvatar: callerAvatar,
             isVideo: isVideo,
           );

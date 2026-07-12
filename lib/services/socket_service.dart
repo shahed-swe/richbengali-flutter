@@ -107,6 +107,9 @@ class SocketService {
       // Mirrors SocketContext.tsx onConnect → PendingCallManager.consumePendingAnsweredCall
       try {
         ref.read(callkitServiceProvider).processPendingCall();
+        // Cold-start: if the app was killed and the user accepted a native call,
+        // the accept event was lost — recover it from the persisted active call.
+        ref.read(callkitServiceProvider).recoverColdStartCall();
       } catch (e) {
         debugPrint('[Socket] processPendingCall error: $e');
       }

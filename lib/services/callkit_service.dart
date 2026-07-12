@@ -350,6 +350,16 @@ class CallkitService {
   }) async {
     if (callId.isEmpty) return;
     try {
+      // Idempotency: a call can be accepted more than once (duplicate CallKit
+      // events, two socket connects firing processPendingCall). Joining Agora
+      // twice throws AgoraRtcException(-17). Skip if we're already on it.
+      final current = _ref.read(callOverlayProvider);
+      if (current.activeCall?.sessionId == callId &&
+          current.callState == 'ongoing') {
+        debugPrint('[CallKit] acceptIncomingCall: $callId already ongoing');
+        return;
+      }
+
       final socketService = _ref.read(socketServiceProvider);
       if (!socketService.connected) {
         await _storePendingAnsweredCall({
@@ -449,6 +459,37 @@ class CallkitService {
       );
     } catch (e) {
       debugPrint('[CallKit] processPendingCall error: $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cold-start recovery: when the app was fully KILLED and the user accepted a
+  // native call, the accept event fires before Flutter is listening and is lost.
+  // But flutter_callkit_incoming persists the call in ACTIVE_CALLS (survives
+  // process death), so on startup we query it and connect the accepted call.
+  // Runs once per app launch.
+  // ---------------------------------------------------------------------------
+  bool _coldStartChecked = false;
+
+  Future<void> recoverColdStartCall() async {
+    if (_coldStartChecked) return;
+    _coldStartChecked = true;
+    try {
+      final calls = await FlutterCallkitIncoming.activeCalls();
+      if (calls is! List || calls.isEmpty) return;
+      final call = Map<String, dynamic>.from(calls.first as Map);
+      final extra = call['extra'] is Map
+          ? Map<String, dynamic>.from(call['extra'] as Map)
+          : const <String, dynamic>{};
+      final callId = (extra['callId'] ?? call['id'] ?? '').toString();
+      if (callId.isEmpty) return;
+      final callerId = (extra['callerId'] ?? '').toString();
+      final callType = (extra['callType'] ?? 'audio').toString();
+      debugPrint('[CallKit] recoverColdStartCall: found active call $callId');
+      await acceptIncomingCall(
+          callId: callId, callerId: callerId, callType: callType);
+    } catch (e) {
+      debugPrint('[CallKit] recoverColdStartCall error: $e');
     }
   }
 

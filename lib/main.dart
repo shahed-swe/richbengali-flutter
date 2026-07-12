@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 // ignore: unnecessary_import
@@ -104,31 +106,29 @@ Future<void> main() async {
   // captured.  If Sentry init itself fails (e.g. network unavailable at boot)
   // we fall back to a plain runApp so startup is never blocked.
   // ---------------------------------------------------------------------------
-  try {
-    await SentryFlutter.init(
-      (options) {
+  // Start the app IMMEDIATELY. Previously runApp was nested inside
+  // SentryFlutter.init(appRunner:), and when the app is launched cold in the
+  // background by a call push, that init can hang — so runApp never ran, the UI
+  // never built, and an accepted call could never connect. Launch first, then
+  // initialise Sentry in the background (non-blocking).
+  debugPrint('[main] starting runApp');
+  runApp(
+    const ProviderScope(
+      child: RichBengaliApp(),
+    ),
+  );
+
+  unawaited(() async {
+    try {
+      await SentryFlutter.init((options) {
         options.dsn =
             'https://1e9d3efdd86543c613e71b0572d4c963@o4510619795259392.ingest.us.sentry.io/4510680694325248';
-        // Capture 20% of transactions for performance monitoring.
         options.tracesSampleRate = 0.2;
-        // Capture 10% of sessions for session-level replays.
         options.profilesSampleRate = 0.1;
-        // Attach native stack traces.
         options.attachStacktrace = true;
-      },
-      appRunner: () => runApp(
-        const ProviderScope(
-          child: RichBengaliApp(),
-        ),
-      ),
-    );
-  } catch (e) {
-    // Sentry failed to init — still run the app.
-    debugPrint('[main] Sentry init error (non-fatal): $e');
-    runApp(
-      const ProviderScope(
-        child: RichBengaliApp(),
-      ),
-    );
-  }
+      });
+    } catch (e) {
+      debugPrint('[main] Sentry init error (non-fatal): $e');
+    }
+  }());
 }
