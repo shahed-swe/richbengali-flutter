@@ -15,6 +15,7 @@ import 'package:uuid/uuid.dart';
 import '../state/call_overlay_provider.dart';
 import 'call_service.dart';
 import 'socket_service.dart';
+import 'voip_push_service.dart';
 
 // ---------------------------------------------------------------------------
 // Pending answered-call storage — mirrors PendingCallManager.ts
@@ -87,6 +88,13 @@ class CallkitService {
   final Ref _ref;
   StreamSubscription<CallEvent?>? _eventSub;
   bool _listenersSetUp = false;
+
+  // iOS VoIP cold start: the user accepted the native call but we don't yet know
+  // the real callId/callerId (the push ids were lost). We hold the accept here
+  // until the backend's call:recover delivers them, then retryAwaitingAccept()
+  // finishes connecting on the correct Agora channel.
+  bool _awaitingAccept = false;
+  String _awaitingAcceptType = 'audio';
 
   // ---------------------------------------------------------------------------
   // CallKit (iOS) requires the call id to be a valid UUID. Our backend call ids
@@ -318,20 +326,55 @@ class CallkitService {
   // ---------------------------------------------------------------------------
 
   Future<void> _onCallAccepted(
-      String callId, Map<String, dynamic> body) async {
-    debugPrint('[CallKit] _onCallAccepted: $callId');
+      String eventCallId, Map<String, dynamic> body) async {
+    debugPrint('[CallKit] _onCallAccepted: $eventCallId');
     final extra = body['extra'] is Map
         ? Map<String, dynamic>.from(body['extra'] as Map)
         : const <String, dynamic>{};
     final overlay = _ref.read(callOverlayProvider);
-    // Prefer the ids carried in the CallKit payload (they survive a cold start);
-    // fall back to the live overlay for the warm/foreground path.
-    final callerId = (extra['callerId']?.toString().isNotEmpty ?? false)
-        ? extra['callerId'].toString()
-        : (overlay.otherUser?.id ?? '');
-    final callType = (extra['callType']?.toString().isNotEmpty ?? false)
+
+    // Prefer the REAL ids recorded in the overlay when the call arrived. The
+    // CallKit event's id is a derived UUID and its extra can be empty (notably
+    // for an iOS VoIP-pushed call), which would otherwise send an empty
+    // callerId / the wrong callId and leave the CALLER stuck on "Calling…".
+    final overlayCallId = overlay.activeCall?.sessionId ?? '';
+    final overlayCallerId = overlay.otherUser?.id ?? '';
+    final extraCallId = extra['callId']?.toString() ?? '';
+    final extraCallerId = extra['callerId']?.toString() ?? '';
+    debugPrint('[CallKit] _onCallAccepted sources: '
+        'overlayCallId="$overlayCallId" overlayCallerId="$overlayCallerId" '
+        'extraCallId="$extraCallId" extraCallerId="$extraCallerId" '
+        'eventId="$eventCallId"');
+
+    var callId = overlayCallId.isNotEmpty
+        ? overlayCallId
+        : (extraCallId.isNotEmpty ? extraCallId : eventCallId);
+    var callerId = overlayCallerId.isNotEmpty ? overlayCallerId : extraCallerId;
+    var callType = (extra['callType']?.toString().isNotEmpty ?? false)
         ? extra['callType'].toString()
         : (overlay.callType ?? 'audio');
+
+    // iOS VoIP: if the caller id is still missing (call accepted before the
+    // overlay/extra were populated), pull the REAL ids the native side cached
+    // the instant the VoIP push arrived — otherwise call:accept goes out with an
+    // empty callerId + a derived-UUID callId and the caller stays on "Calling…".
+    if (callerId.isEmpty) {
+      try {
+        final pending =
+            await _ref.read(voipPushServiceProvider).getPendingVoipCall();
+        if (pending != null) {
+          final pCaller = (pending['callerId'] ?? '').toString();
+          final pCall = (pending['callId'] ?? '').toString();
+          final pType = (pending['callType'] ?? '').toString();
+          if (pCaller.isNotEmpty) callerId = pCaller;
+          if (pCall.isNotEmpty) callId = pCall;
+          if (pType.isNotEmpty) callType = pType;
+          debugPrint(
+              '[CallKit] recovered VoIP ids: callId=$callId callerId="$callerId"');
+        }
+      } catch (_) {}
+    }
+
     await acceptIncomingCall(
         callId: callId, callerId: callerId, callType: callType);
   }
@@ -348,8 +391,37 @@ class CallkitService {
     String callerId = '',
     String callType = 'audio',
   }) async {
-    if (callId.isEmpty) return;
     try {
+      // Prefer the overlay's REAL ids (recorded from the VoIP payload / socket
+      // call:request) when the ones we were handed are missing — the iOS VoIP
+      // cold-start CallKit path passes a derived UUID callId + empty callerId,
+      // which leaves the caller stuck on "Calling…".
+      final ov = _ref.read(callOverlayProvider);
+      final ovCallerId = ov.otherUser?.id ?? '';
+      final ovCallId = ov.activeCall?.sessionId ?? '';
+      if (callerId.isEmpty && ovCallerId.isNotEmpty) {
+        callerId = ovCallerId;
+        if (ovCallId.isNotEmpty) callId = ovCallId;
+      }
+
+      // Still no caller? (iOS VoIP cold start: push ids lost AND the socket
+      // call:request never arrived because we were offline.) Do NOT connect with
+      // a bogus/derived callId — that would put us on a different Agora channel
+      // than the caller and leave them stuck on "Calling…". Hold the accept and
+      // ask the backend for the real ids; the socket call:recover handler calls
+      // retryAwaitingAccept() to finish once they arrive.
+      if (callerId.isEmpty) {
+        _awaitingAccept = true;
+        _awaitingAcceptType = callType;
+        debugPrint('[CallKit] accept held: caller unknown, requesting recover');
+        try {
+          final s = _ref.read(socketServiceProvider);
+          if (s.connected) s.requestCallRecover();
+        } catch (_) {}
+        return;
+      }
+      if (callId.isEmpty) return;
+
       // Idempotency: a call can be accepted more than once (duplicate CallKit
       // events, two socket connects firing processPendingCall). Joining Agora
       // twice throws AgoraRtcException(-17). Skip if we're already on it.
@@ -372,6 +444,8 @@ class CallkitService {
       }
 
       final isVideo = callType == 'video';
+      debugPrint(
+          '[CallKit] acceptIncomingCall emit accept: callId=$callId callerId="$callerId" type=$callType');
       socketService.acceptCall(callId: callId, callerId: callerId);
       socketService.startCall(callId: callId, otherUserId: callerId);
 
@@ -401,6 +475,24 @@ class CallkitService {
     } catch (e) {
       debugPrint('[CallKit] acceptIncomingCall error: $e');
     }
+  }
+
+  /// Completes a VoIP cold-start accept that was held waiting for the real call
+  /// ids. Called from the socket call:recover handler once the overlay carries
+  /// the true callId/callerId delivered by the backend.
+  void retryAwaitingAccept() {
+    if (!_awaitingAccept) return;
+    final ov = _ref.read(callOverlayProvider);
+    final callerId = ov.otherUser?.id ?? '';
+    final callId = ov.activeCall?.sessionId ?? '';
+    if (callerId.isEmpty || callId.isEmpty) return;
+    _awaitingAccept = false;
+    debugPrint('[CallKit] retryAwaitingAccept → $callId caller=$callerId');
+    acceptIncomingCall(
+      callId: callId,
+      callerId: callerId,
+      callType: _awaitingAcceptType,
+    );
   }
 
   // ---------------------------------------------------------------------------

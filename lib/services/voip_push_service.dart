@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../state/call_overlay_provider.dart';
 import 'callkit_service.dart';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,19 @@ class VoipPushService {
         onTokenReceived?.call(cached);
       }
 
+      // Cold start: the VoIP call arrived before Dart was listening, so its
+      // onVoipCallReceived was dropped. Pull the RAW payload now and record the
+      // real callId/callerId in the overlay, so the accept below routes to the
+      // caller with the right ids.
+      try {
+        final rawCall = await _channel.invokeMethod('getPendingVoipCall');
+        if (rawCall is Map) {
+          await _handleIncomingVoipCall(Map<String, dynamic>.from(rawCall));
+        }
+      } catch (e) {
+        debugPrint('[VoipPush] getPendingVoipCall(raw) error: $e');
+      }
+
       // Pull any native CallKit "accept" that happened before Dart was ready
       // (cold start from a VoIP-push call) and connect it now.
       try {
@@ -85,6 +99,27 @@ class VoipPushService {
     } catch (e) {
       debugPrint('[VoipPush] register error: $e');
     }
+  }
+
+  /// Returns the REAL call ids for the current VoIP-pushed call (cached
+  /// natively the instant the push arrived): { callId, callerId, callType }.
+  /// Used when accepting a call whose overlay/extra weren't populated yet.
+  Future<Map<String, dynamic>?> getPendingVoipCall() async {
+    if (!Platform.isIOS) return null;
+    try {
+      final r = await _channel.invokeMethod('getPendingVoipCall');
+      if (r is Map) {
+        final raw = Map<String, dynamic>.from(r);
+        return {
+          'callId': (raw['callId'] ?? raw['sessionId'] ?? '').toString(),
+          'callerId': (raw['callerId'] ?? raw['senderId'] ?? '').toString(),
+          'callType': (raw['callType'] ?? 'audio').toString(),
+        };
+      }
+    } catch (e) {
+      debugPrint('[VoipPush] getPendingVoipCall error: $e');
+    }
+    return null;
   }
 
   Future<dynamic> _handleMethodCall(MethodCall call) async {
@@ -128,12 +163,39 @@ class VoipPushService {
   }
 
   Future<void> _handleIncomingVoipCall(Map<String, dynamic> payload) async {
-    // The native AppDelegate already reports the VoIP call to CallKit
-    // (required synchronously in the PushKit handler), and the accept comes
-    // back via onCallKitAnswer → acceptIncomingCall. Showing a second CallKit
-    // here would double the incoming-call UI, so we only log.
-    debugPrint(
-        '[VoipPush] Incoming VoIP call (native CallKit shows it): ${payload['callId']}');
+    // The native AppDelegate already reports the VoIP call to CallKit; we don't
+    // show a second one. But we MUST record the REAL call context (callId +
+    // callerId) in the overlay here, so that when the user accepts — whichever
+    // CallKit path fires — the accept routes call:accept to the real caller
+    // with the real call id (the CallKit event otherwise carries a derived UUID
+    // and an empty caller id, leaving the caller stuck on "Calling…").
+    try {
+      debugPrint('[VoipPush] raw payload: $payload');
+      final callId = (payload['callId'] ?? payload['sessionId'] ?? '').toString();
+      final callerId = (payload['callerId'] ?? payload['senderId'] ?? '').toString();
+      final callerName =
+          (payload['callerName'] ?? payload['senderName'] ?? 'Unknown').toString();
+      final callerAvatar =
+          (payload['callerAvatar'] ?? payload['avatar'])?.toString();
+      final callType = (payload['callType'] ?? 'audio').toString();
+      debugPrint('[VoipPush] Incoming VoIP call: $callId caller="$callerId"');
+
+      if (callId.isEmpty) return;
+      final overlay = _ref.read(callOverlayProvider);
+      if (overlay.activeCall == null) {
+        _ref.read(callOverlayProvider.notifier).setActiveCall(
+              ActiveCall(sessionId: callId),
+              CallOverlayUser(
+                  id: callerId,
+                  name: callerName,
+                  profilePictureUrl: callerAvatar),
+              callType: callType,
+              callState: 'incoming',
+            );
+      }
+    } catch (e) {
+      debugPrint('[VoipPush] _handleIncomingVoipCall error: $e');
+    }
   }
 
   void dispose() {

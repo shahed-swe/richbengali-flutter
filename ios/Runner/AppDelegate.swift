@@ -57,6 +57,10 @@ import UIKit
     private var pendingVoipCallerId: String?
     private var pendingVoipCallType: String?
     private var cachedAccept: [String: Any]?
+    // Raw VoIP payload, re-delivered to Dart once the engine is ready (on a
+    // cold start the first onVoipCallReceived invoke is dropped because the
+    // channel doesn't exist yet).
+    private var pendingVoipPayload: [String: Any]?
 
     // -------------------------------------------------------------------------
     // application(_:didFinishLaunchingWithOptions:)
@@ -109,6 +113,13 @@ import UIKit
         voipChannel?.setMethodCallHandler { [weak self] call, result in
             self?.handleDartCall(call, result: result)
         }
+
+        // Re-deliver a VoIP call that arrived before the engine/channel existed
+        // (cold start), so Dart can record the real callId/callerId in the
+        // overlay for the accept.
+        if let p = pendingVoipPayload {
+            voipChannel?.invokeMethod("onVoipCallReceived", arguments: p)
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -143,6 +154,11 @@ import UIKit
             // engine was ready (cold start from a VoIP-push call).
             result(cachedAccept)
             cachedAccept = nil
+
+        case "getPendingVoipCall":
+            // Dart pulls the RAW VoIP payload for the current call and parses
+            // sessionId/callerId itself (more forgiving than the Swift casts).
+            result(pendingVoipPayload)
 
         default:
             result(FlutterMethodNotImplemented)
@@ -206,6 +222,7 @@ extension AppDelegate: PKPushRegistryDelegate {
         }
 
         let data = payload.dictionaryPayload
+        NSLog("[AppDelegate] VoIP payload received: \(data)")
 
         // Extract caller info from the push payload.
         // Expected shape: { "callerName": "...", "callId": "...", "callType": "audio"|"video" }
@@ -219,10 +236,21 @@ extension AppDelegate: PKPushRegistryDelegate {
         let callType = data["callType"] as? String ?? "audio"
         let hasVideo   = callType == "video"
 
+        // Hand the RAW push (minus aps) to Dart — Dart parses sessionId/callerId
+        // itself, which is more forgiving than the Swift casts above and avoids
+        // the empty-id fallback that leaves the caller stuck on "Calling…".
+        var rawForDart: [String: Any] = [:]
+        for (k, v) in data {
+            if let ks = k as? String, ks != "aps" { rawForDart[ks] = v }
+        }
+        rawForDart["callerName"] = callerName
+        rawForDart["callType"] = callType
+
         // Remember the ids so a subsequent accept can join + route the call.
         pendingVoipCallId = callId
         pendingVoipCallerId = callerId
         pendingVoipCallType = callType
+        pendingVoipPayload = rawForDart
 
         // We MUST call report before completion() — iOS requires a CallKit report
         // for every VoIP push or the app will be penalised / killed.
@@ -230,14 +258,11 @@ extension AppDelegate: PKPushRegistryDelegate {
         activeCallUUID = uuid
         reportIncomingCall(uuid: uuid, callerName: callerName, hasVideo: hasVideo)
 
-        // Forward payload to Dart so the Riverpod call overlay is updated.
+        // Forward payload to Dart so the Riverpod call overlay is updated. On a
+        // cold start this is dropped (no channel yet) and re-delivered from
+        // didInitializeImplicitFlutterEngine.
         DispatchQueue.main.async { [weak self] in
-            self?.voipChannel?.invokeMethod("onVoipCallReceived", arguments: [
-                "callId":     callId,
-                "callerId":   callerId,
-                "callerName": callerName,
-                "callType":   callType,
-            ])
+            self?.voipChannel?.invokeMethod("onVoipCallReceived", arguments: rawForDart)
         }
 
         completion()

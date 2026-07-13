@@ -362,6 +362,8 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
     // Accept and set state to ongoing. callerId = the caller (our otherUser),
     // required so the backend can route call:accept back to them.
+    debugPrint(
+        '[Call] _answerCall emit accept: callId=$callId callerId="${overlay.otherUser?.id}"');
     socket.acceptCall(callId: callId, callerId: overlay.otherUser?.id ?? '');
     ref.read(callOverlayProvider.notifier).setCallState('ongoing');
 

@@ -110,6 +110,16 @@ class SocketService {
         // Cold-start: if the app was killed and the user accepted a native call,
         // the accept event was lost — recover it from the persisted active call.
         ref.read(callkitServiceProvider).recoverColdStartCall();
+        // Ask the backend for the real call details of any call we were rung for
+        // while offline (iOS VoIP cold start loses the push payload ids). The
+        // backend replies on 'call:recover' below with the true callId/callerId.
+        newSocket.emit('call:recover');
+        // Report our actual lifecycle so the backend suppresses call pushes only
+        // when we're truly foreground. A headless cold-start connects here while
+        // NOT foreground, so this correctly marks the device as background.
+        final isForegroundNow =
+            WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+        newSocket.emit(isForegroundNow ? 'app:foreground' : 'app:background');
       } catch (e) {
         debugPrint('[Socket] processPendingCall error: $e');
       }
@@ -427,6 +437,37 @@ class SocketService {
       }
     });
 
+    // call:recover — backend's reply to our on-connect 'call:recover' emit.
+    // Carries the REAL callId/callerId of a call we were rung for while offline
+    // (iOS VoIP cold start). Record it in the overlay and, if the user already
+    // accepted the native call, finish connecting with the correct ids so both
+    // sides join the same Agora channel and the caller leaves "Calling…".
+    newSocket.on('call:recover', (data) {
+      final payload = _toMap(data);
+      final callId = payload['callId']?.toString() ?? '';
+      final callerId = payload['callerId']?.toString() ?? '';
+      final callerName = payload['callerName']?.toString() ?? 'Unknown';
+      final callType = payload['callType']?.toString() ?? 'audio';
+      debugPrint('[Socket] call:recover → callId=$callId caller="$callerId"');
+      if (callId.isEmpty || callerId.isEmpty) return;
+
+      final overlay = ref.read(callOverlayProvider);
+      // Don't clobber a call that's already progressing normally.
+      if (overlay.callState != 'ongoing') {
+        ref.read(callOverlayProvider.notifier).setActiveCall(
+          ActiveCall(sessionId: callId),
+          CallOverlayUser(id: callerId, name: callerName),
+          callType: callType,
+          callState: 'incoming',
+        );
+      }
+      try {
+        ref.read(callkitServiceProvider).retryAwaitingAccept();
+      } catch (e) {
+        debugPrint('[Socket] retryAwaitingAccept error: $e');
+      }
+    });
+
     // earnings:update — live earnings/balance update during a call
     newSocket.on('earnings:update', (data) {
       final payload = _toMap(data);
@@ -501,6 +542,18 @@ class SocketService {
 
   void startCall({required String callId, required String otherUserId}) =>
       emit('call:start', {'callId': callId, 'otherUserId': otherUserId});
+
+  // Ask the backend to re-send the details of any call we were rung for while
+  // offline (iOS VoIP cold start). Backend replies on the 'call:recover' event.
+  void requestCallRecover() => emit('call:recover');
+
+  // Tell the backend whether this device's app is foreground. The backend
+  // suppresses the native call push (CallKit/FCM) ONLY for foreground devices;
+  // a backgrounded/just-killed device (whose socket may linger ~85s) must still
+  // receive the push so the call rings. Emitting on lifecycle change keeps this
+  // accurate instead of depending on the slow socket ping timeout.
+  void notifyForeground() => emit('app:foreground');
+  void notifyBackground() => emit('app:background');
 
   void cancelCall({required String callId, required String receiverId}) =>
       emit('call:cancel', {'callId': callId, 'receiverId': receiverId});

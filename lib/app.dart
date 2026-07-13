@@ -76,6 +76,24 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Tell the backend our foreground/background state so it suppresses the
+    // native call push (CallKit/FCM) ONLY while we're truly foreground. Without
+    // this, iOS keeps a backgrounded app's socket "connected" for ~85s and the
+    // backend wrongly skips the VoIP push → a just-closed iPhone never rings.
+    try {
+      final socket = ref.read(socketServiceProvider);
+      if (state == AppLifecycleState.resumed) {
+        socket.notifyForeground();
+      } else if (state == AppLifecycleState.paused ||
+          state == AppLifecycleState.inactive ||
+          state == AppLifecycleState.detached ||
+          state == AppLifecycleState.hidden) {
+        socket.notifyBackground();
+      }
+    } catch (e) {
+      debugPrint('[App] lifecycle notify error: $e');
+    }
+
     if (state == AppLifecycleState.resumed) {
       // Clear all notifications when app comes to foreground.
       // Mirrors App.tsx AppState 'active' handler (clears badge / Android notifs).
