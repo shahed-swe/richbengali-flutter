@@ -18,6 +18,7 @@ import '../../state/notifications_provider.dart';
 import '../../data/calls_repository.dart';
 import '../../data/messages_repository.dart';
 import '../../data/users_repository.dart';
+import '../../router/app_router.dart';
 import '../../services/socket_service.dart';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   // app lifecycle pause). Used to avoid double-marking active/inactive.
   bool _isVisible = true;
 
+  // Router used to detect bottom-tab switches. This screen lives inside a
+  // kept-alive StatefulShellBranch, so switching tabs away/back does NOT
+  // recreate it (initState won't re-run). We listen to the router to re-fetch
+  // and re-mark visible when this chat's route becomes current again.
+  GoRouter? _router;
+  bool _routeIsCurrent = true;
+
   // Id of the newest message the list last auto-scrolled for. Gates the
   // scroll-to-bottom so it fires only when a NEW message lands at the bottom —
   // prepending older history pages must NOT yank the user back down.
@@ -79,6 +87,29 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     // an app restart or a loading flash.
     WidgetsBinding.instance.addPostFrameCallback(
         (_) => ref.read(messagesProvider(_otherUserId).notifier).syncOnOpen());
+    // Re-fetch when we return to this chat's route via a bottom-tab switch
+    // (the screen is kept alive, so initState above won't run again).
+    _router = ref.read(goRouterProvider);
+    _router!.routerDelegate.addListener(_onRouterChanged);
+  }
+
+  /// Fires on every navigation. Because this screen is kept alive inside the
+  /// shell branch, tab-switching away and back is the ONLY signal we get that
+  /// the chat became visible again — so here we re-fetch the latest page (so
+  /// messages that arrived while the user was on another tab appear) and keep
+  /// the backend's active/inactive tracking honest.
+  void _onRouterChanged() {
+    if (!mounted || _router == null) return;
+    final path = _router!.routerDelegate.currentConfiguration.uri.path;
+    final nowCurrent = path == '/chats/$_otherUserId';
+    if (nowCurrent == _routeIsCurrent) return;
+    _routeIsCurrent = nowCurrent;
+    if (nowCurrent) {
+      _markChatVisible();
+      ref.read(messagesProvider(_otherUserId).notifier).syncOnOpen();
+    } else {
+      _markChatHidden();
+    }
   }
 
   /// Near-top scroll trigger for Messenger-style history pagination. Loads the
@@ -106,6 +137,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _router?.routerDelegate.removeListener(_onRouterChanged);
     _textController.dispose();
     _scrollController.dispose();
     _chatMessageSub?.cancel();
