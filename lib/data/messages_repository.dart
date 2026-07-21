@@ -20,9 +20,22 @@ class MessagesRepository {
         .toList();
   }
 
-  /// GET /messages/:otherUserId — returns messages with that user
-  Future<List<Message>> getMessages(String otherUserId) async {
-    final resp = await _dio.get('/messages/$otherUserId');
+  /// GET /messages/:otherUserId — returns messages with that user.
+  /// [limit] caps the page size (newest first server-side, returned oldest→
+  /// newest). [before] (ISO timestamp) returns only messages older than it —
+  /// used for Messenger-style scroll-up pagination.
+  Future<List<Message>> getMessages(
+    String otherUserId, {
+    int? limit,
+    String? before,
+  }) async {
+    final resp = await _dio.get(
+      '/messages/$otherUserId',
+      queryParameters: {
+        'limit': ?limit,
+        'before': ?before,
+      },
+    );
     final data = resp.data;
     final list = data is Map ? data['data'] : data;
     if (list is! List) return [];

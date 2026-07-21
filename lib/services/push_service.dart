@@ -241,29 +241,38 @@ class PushService {
       final messaging = FirebaseMessaging.instance;
 
       if (Platform.isIOS) {
-        // iOS requires APNs registration first
+        // iOS requires APNs registration first. Registration is ASYNC — a
+        // single getAPNSToken() check right after launch often returns null,
+        // getToken() then throws (apns-token-not-set) and the session ends up
+        // with NO FCM token: the device row syncs voip-only, so calls ring but
+        // message notifications are never sent to iOS. Poll until the APNs
+        // token exists (up to ~20s) before asking FCM for its token.
         try {
           await messaging.setAutoInitEnabled(true);
-          await messaging.getAPNSToken();
+          String? apns;
+          for (var i = 0; i < 10 && apns == null; i++) {
+            apns = await messaging.getAPNSToken();
+            if (apns == null) {
+              await Future.delayed(const Duration(seconds: 2));
+            }
+          }
+          debugPrint(
+              '[Push] APNs token ${apns != null ? 'ready' : 'still null after wait'}');
         } catch (e) {
           debugPrint('[Push] APNs setup error: $e');
         }
       }
 
       String? token;
-      try {
-        token = await messaging.getToken();
-      } catch (e) {
-        debugPrint('[Push] getToken() attempt 1 failed: $e');
-      }
-
-      // Retry once after 3s on iOS (mirrors usePushNotifications.ts retry)
-      if (token == null && Platform.isIOS) {
-        await Future.delayed(const Duration(seconds: 3));
+      // A few attempts with backoff (iOS may still need a beat after APNs).
+      for (var attempt = 1; attempt <= 3 && token == null; attempt++) {
         try {
           token = await messaging.getToken();
         } catch (e) {
-          debugPrint('[Push] getToken() attempt 2 failed: $e');
+          debugPrint('[Push] getToken() attempt $attempt failed: $e');
+          if (attempt < 3) {
+            await Future.delayed(Duration(seconds: 3 * attempt));
+          }
         }
       }
 

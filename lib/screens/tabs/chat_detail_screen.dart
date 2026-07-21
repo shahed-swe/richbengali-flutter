@@ -57,20 +57,50 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   // app lifecycle pause). Used to avoid double-marking active/inactive.
   bool _isVisible = true;
 
+  // Id of the newest message the list last auto-scrolled for. Gates the
+  // scroll-to-bottom so it fires only when a NEW message lands at the bottom —
+  // prepending older history pages must NOT yank the user back down.
+  String? _lastBottomMessageId;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _textController.addListener(() => setState(() {}));
+    // Scroll-up pagination: load the previous history page when nearing the top.
+    _scrollController.addListener(_maybeLoadOlder);
     // Defer socket setup + notification marking until after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) => _setupSocket());
     WidgetsBinding.instance.addPostFrameCallback((_) => _markNotificationsRead());
     WidgetsBinding.instance.addPostFrameCallback((_) => _markChatVisible());
-    // Re-fetch history when (re)opening if it wasn't loaded or was cleared, so a
-    // one-off failed load or a prior clear never shows a permanently stale/empty
-    // thread (BUG #5a / #5b).
+    // Sync history on every (re)open: full load if never loaded/cleared
+    // (BUG #5a / #5b), otherwise a SILENT latest-page merge so messages that
+    // arrived while the user was on another screen appear immediately without
+    // an app restart or a loading flash.
     WidgetsBinding.instance.addPostFrameCallback(
-        (_) => ref.read(messagesProvider(_otherUserId).notifier).ensureLoaded());
+        (_) => ref.read(messagesProvider(_otherUserId).notifier).syncOnOpen());
+  }
+
+  /// Near-top scroll trigger for Messenger-style history pagination. Loads the
+  /// older page and keeps the viewport anchored on the message the user was
+  /// looking at (prepending items grows scroll extent above the viewport).
+  Future<void> _maybeLoadOlder() async {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels > 120) return;
+    final notifier = ref.read(messagesProvider(_otherUserId).notifier);
+    final before = _scrollController.position.maxScrollExtent;
+    final grew = await notifier.loadOlder(); // internally guarded (in-flight/hasMore)
+    if (!grew || !mounted) return;
+    // After the prepended page renders, restore the visual position.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final after = _scrollController.position.maxScrollExtent;
+      final delta = after - before;
+      if (delta > 0) {
+        _scrollController
+            .jumpTo(_scrollController.position.pixels + delta);
+      }
+    });
   }
 
   @override
@@ -606,7 +636,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       );
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    // Auto-scroll only when a NEW newest message arrived — not when older
+    // history was prepended above (that must keep the viewport anchored).
+    final bottomId = messages.last.id;
+    if (bottomId != _lastBottomMessageId) {
+      _lastBottomMessageId = bottomId;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
+
+    final showTopLoader = messagesState.loadingOlder;
 
     return RefreshIndicator(
       color: const Color(0xFFF43F5E),
@@ -616,9 +654,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: messages.length,
+        itemCount: messages.length + (showTopLoader ? 1 : 0),
         itemBuilder: (ctx, i) {
-          final msg = messages[i];
+          if (showTopLoader && i == 0) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Color(0xFFF43F5E)),
+                ),
+              ),
+            );
+          }
+          final msg = messages[i - (showTopLoader ? 1 : 0)];
           return _buildBubble(msg, myId);
         },
       ),

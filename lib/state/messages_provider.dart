@@ -18,11 +18,20 @@ class MessagesState {
   /// IDs of messages we know have been deleted — used for DEDUP
   final Set<String> deletedIds;
 
+  /// Whether older history pages may still exist on the server (Messenger-style
+  /// scroll-up pagination). Starts true; set false once a page comes back short.
+  final bool hasMore;
+
+  /// An older-page fetch is in flight (guards double-triggers from scrolling).
+  final bool loadingOlder;
+
   const MessagesState({
     this.messages = const [],
     this.isLoading = false,
     this.loaded = false,
     this.deletedIds = const {},
+    this.hasMore = true,
+    this.loadingOlder = false,
   });
 
   MessagesState copyWith({
@@ -30,12 +39,16 @@ class MessagesState {
     bool? isLoading,
     bool? loaded,
     Set<String>? deletedIds,
+    bool? hasMore,
+    bool? loadingOlder,
   }) {
     return MessagesState(
       messages: messages ?? this.messages,
       isLoading: isLoading ?? this.isLoading,
       loaded: loaded ?? this.loaded,
       deletedIds: deletedIds ?? this.deletedIds,
+      hasMore: hasMore ?? this.hasMore,
+      loadingOlder: loadingOlder ?? this.loadingOlder,
     );
   }
 }
@@ -47,6 +60,12 @@ class MessagesState {
 class MessagesNotifier extends Notifier<MessagesState> {
   MessagesNotifier(this.otherUserId);
   final String otherUserId;
+
+  /// Initial page: enough to fill the screen with the LATEST messages.
+  static const int _initialPageSize = 30;
+
+  /// Older-history pages loaded when the user scrolls up (Messenger-style).
+  static const int _olderPageSize = 15;
 
   @override
   MessagesState build() {
@@ -64,10 +83,16 @@ class MessagesNotifier extends Notifier<MessagesState> {
       try {
         final msgs = await ref
             .read(messagesRepositoryProvider)
-            .getMessages(otherUserId);
+            .getMessages(otherUserId, limit: _initialPageSize);
         final sorted = List<Message>.from(msgs)
           ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-        state = state.copyWith(messages: sorted, isLoading: false, loaded: true);
+        state = state.copyWith(
+          messages: sorted,
+          isLoading: false,
+          loaded: true,
+          // A full first page means older history may exist above it.
+          hasMore: msgs.length >= _initialPageSize,
+        );
         return;
       } catch (_) {
         if (attempt < 2) {
@@ -90,16 +115,62 @@ class MessagesNotifier extends Notifier<MessagesState> {
     }
   }
 
+  /// Called on every chat open. Guarantees the thread is CURRENT:
+  /// • never loaded / previously cleared → full initial load (with spinner)
+  /// • already loaded → silent latest-page re-fetch merged in, so messages that
+  ///   arrived while the user was elsewhere (home page, other chat) appear
+  ///   without an app restart and without a loading flash.
+  void syncOnOpen() {
+    if (!state.loaded) {
+      ensureLoaded();
+    } else {
+      refresh();
+    }
+  }
+
+  /// Re-fetch the LATEST page and merge. Silent when content is already loaded
+  /// (no isLoading flip → no full-screen spinner flash on an open chat).
   Future<void> refresh() async {
     final prev = state;
-    state = prev.copyWith(isLoading: true);
+    if (!prev.loaded) state = prev.copyWith(isLoading: true);
     try {
       final msgs = await ref
           .read(messagesRepositoryProvider)
-          .getMessages(otherUserId);
-      state = _merge(prev, msgs);
+          .getMessages(otherUserId, limit: _initialPageSize);
+      state = _merge(state, msgs);
     } catch (_) {
       state = state.copyWith(isLoading: false);
+    }
+  }
+
+  /// Load the previous (older) history page — triggered when the user scrolls
+  /// near the top. Returns true if anything new was added (screen uses it to
+  /// keep the scroll position anchored).
+  Future<bool> loadOlder() async {
+    final s = state;
+    if (!s.loaded || s.loadingOlder || !s.hasMore || s.messages.isEmpty) {
+      return false;
+    }
+    state = s.copyWith(loadingOlder: true);
+    try {
+      final oldest = state.messages.first;
+      final page = await ref.read(messagesRepositoryProvider).getMessages(
+            otherUserId,
+            limit: _olderPageSize,
+            before: oldest.createdAt,
+          );
+      final grewBy = page
+          .where((m) => !state.messages.any((e) => e.id == m.id))
+          .length;
+      state = _merge(state, page).copyWith(
+        // A short page means we've reached the beginning of the thread.
+        hasMore: page.length >= _olderPageSize,
+        loadingOlder: false,
+      );
+      return grewBy > 0;
+    } catch (_) {
+      state = state.copyWith(loadingOlder: false);
+      return false;
     }
   }
 
@@ -119,7 +190,9 @@ class MessagesNotifier extends Notifier<MessagesState> {
         messages: sorted,
         deletedIds: prev.deletedIds,
         isLoading: false,
-        loaded: true);
+        loaded: true,
+        hasMore: prev.hasMore,
+        loadingOlder: prev.loadingOlder);
   }
 
   /// Append a realtime message from socket `chat:message` with DEDUP.

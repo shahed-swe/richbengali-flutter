@@ -5,6 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../core/device_id.dart';
 import '../core/env.dart';
 import '../core/jwt.dart';
+import '../models/message.dart';
 import '../state/active_chat_provider.dart';
 import '../state/auth_provider.dart';
 import '../state/call_overlay_provider.dart';
@@ -164,7 +165,7 @@ class SocketService {
                 '')
             .toString()
             .trim();
-        if (senderId.isNotEmpty) {
+        if (senderId.isNotEmpty && ref.exists(messagesProvider(senderId))) {
           try {
             ref.read(messagesProvider(senderId).notifier).refresh();
           } catch (_) {}
@@ -201,12 +202,17 @@ class SocketService {
         ref.invalidate(conversationsProvider);
       } catch (_) {}
 
-      // BUG #4a: if this message is for the chat we're currently viewing but
-      // arrived via the personal room (e.g. a reconnect dropped the chat room),
-      // pull it into the open thread so it doesn't silently go missing.
+      // BUG #4a (extended): pull the message into the cached thread whenever
+      // that thread has been opened before — NOT only when currently viewing
+      // it. While the user is on the home page they're outside the chat room,
+      // so this personal-room event is the ONLY signal; without refreshing
+      // here the kept-alive thread cache goes stale and the messages only
+      // reappear after a full app restart. refresh() is silent (merge, no
+      // spinner) and never-opened chats are skipped (they load fresh anyway).
       try {
-        final currentPeer = ref.read(currentChatPeerIdProvider);
-        if (actorId.isNotEmpty && currentPeer == actorId) {
+        if (actorId.isNotEmpty &&
+            type == 'message' &&
+            ref.exists(messagesProvider(actorId))) {
           ref.read(messagesProvider(actorId).notifier).refresh();
         }
       } catch (_) {}
@@ -275,6 +281,22 @@ class SocketService {
             currentChatPeerId != null && currentChatPeerId == senderId;
         final alreadyNotified =
             messageId.isNotEmpty && messageId == _lastNotifiedMessageId;
+
+        // Deliver into the thread cache even when the user is NOT viewing that
+        // chat. The messagesProvider family is kept alive for the session, so
+        // without this a message arriving while the user is on the home page
+        // (or another chat) never lands in the cached thread — reopening the
+        // chat showed stale history until a full app restart. Only providers
+        // that already exist are touched: a never-opened chat has no stale
+        // cache and will load fresh on first open. (While viewing, the chat
+        // screen's own stream listener appends; appendRealtime dedups by id.)
+        if (isFromOther && ref.exists(messagesProvider(senderId))) {
+          try {
+            ref
+                .read(messagesProvider(senderId).notifier)
+                .appendRealtime(Message.fromJson(payload));
+          } catch (_) {}
+        }
 
         if (isFromOther && !isViewingThatChat && !alreadyNotified) {
           if (messageId.isNotEmpty) _lastNotifiedMessageId = messageId;
