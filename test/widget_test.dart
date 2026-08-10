@@ -1,25 +1,26 @@
-// This is a basic Flutter widget test.
+// Smoke test: the app boots to the splash route while the stored session is
+// still hydrating, without throwing.
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// The previous version asserted on a 'Welcome to RichBengali' string from a
+// screen that no longer exists, so it had been failing for some time.
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:richbengali/app.dart';
 
 void main() {
-  testWidgets('App smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('App boots to the splash screen', (WidgetTester tester) async {
     await tester.pumpWidget(
       const ProviderScope(
         child: RichBengaliApp(),
       ),
     );
 
-    // Verify that the welcome title is present.
-    expect(find.text('Welcome to RichBengali'), findsOneWidget);
+    // The router holds on /splash until auth hydration completes, so a cold
+    // start never flashes /login.
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

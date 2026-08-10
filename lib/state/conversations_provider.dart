@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'refresh_in_place.dart';
 import '../data/messages_repository.dart';
 import '../models/conversation.dart';
 
@@ -8,22 +9,12 @@ class ConversationsNotifier extends AsyncNotifier<List<Conversation>> {
     return ref.read(messagesRepositoryProvider).getConversations();
   }
 
-  /// Refetch without discarding the current data.
-  ///
-  /// `invalidateSelf` re-runs `build()` while Riverpod keeps the previous
-  /// value attached to the new `AsyncLoading`. Because `AsyncValue.when`
-  /// defaults to `skipLoadingOnRefresh: true`, the UI keeps rendering the old
-  /// list and swaps in the new one when it arrives, instead of flashing a
-  /// full-screen spinner on every pull-to-refresh or socket-driven refresh.
+  /// Refetch without tearing the current data off the screen.
   Future<void> refresh() async {
-    ref.invalidateSelf();
-    try {
-      await future;
-    } catch (_) {
-      // The error is already surfaced through `state` as AsyncError; swallow it
-      // here so callers like RefreshIndicator.onRefresh never see an unhandled
-      // rejection.
-    }
+    state = await refreshedState(
+      state,
+      () => ref.read(messagesRepositoryProvider).getConversations(),
+    );
   }
 
   /// Update online/in-call status for a specific user from socket event.

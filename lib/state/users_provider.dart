@@ -85,3 +85,24 @@ final homeHiddenUsersProvider =
     NotifierProvider<HomeHiddenUsersNotifier, Set<String>>(
   HomeHiddenUsersNotifier.new,
 );
+
+/// The Home grid's actual contents: fetched users minus the locally hidden ones.
+///
+/// Derived here rather than filtered inline in `HomeScreen.build` so the
+/// filtering runs once per data change instead of on every widget rebuild.
+///
+/// When no fetched user is actually hidden, the original list instance is
+/// returned unchanged. `Provider` compares with `==`, and a fresh `toList()`
+/// never equals the previous one, so without this the grid would rebuild on
+/// every unrelated hide/unhide. Returning the same instance lets Riverpod
+/// suppress those notifications entirely.
+final visibleUsersProvider =
+    Provider.family<AsyncValue<List<User>>, UserFilters>((ref, filters) {
+  final hidden = ref.watch(homeHiddenUsersProvider);
+  return ref.watch(usersProvider(filters)).whenData((users) {
+    if (hidden.isEmpty) return users;
+    final visible =
+        users.where((u) => !hidden.contains(u.id.toString())).toList();
+    return visible.length == users.length ? users : visible;
+  });
+});

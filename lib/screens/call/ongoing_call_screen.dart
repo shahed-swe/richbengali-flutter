@@ -29,6 +29,17 @@ import '../../widgets/call/earnings_overlay.dart';
 class OngoingCallScreen extends ConsumerStatefulWidget {
   const OngoingCallScreen({super.key});
 
+  /// Formats a call duration as mm:ss, or hh:mm:ss past an hour.
+  static String formatDuration(int totalSeconds) {
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    final s = totalSeconds % 60;
+    if (h > 0) {
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
   @override
   ConsumerState<OngoingCallScreen> createState() => _OngoingCallScreenState();
 }
@@ -37,7 +48,14 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
     with WidgetsBindingObserver {
   // Call timer
   Timer? _timerTick;
-  int _durationSeconds = 0;
+  /// Live call duration in seconds.
+  ///
+  /// A ValueNotifier rather than plain state: the 1 Hz tick used to call
+  /// setState on this whole screen, rebuilding the Agora video views and every
+  /// control once per second just to advance a clock label. Only the duration
+  /// text and the earnings pill actually depend on it, and both now subscribe
+  /// directly.
+  final ValueNotifier<int> _duration = ValueNotifier<int>(0);
 
   // Local PiP drag position
   double _pipX = 0;
@@ -70,6 +88,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timerTick?.cancel();
+    _duration.dispose();
     try {
       ref
           .read(callServiceProvider)
@@ -245,9 +264,9 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
   void _startTimer() {
     _timerTick?.cancel();
-    _durationSeconds = 0;
+    _duration.value = 0;
     _timerTick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _durationSeconds++);
+      if (mounted) _duration.value++;
     });
     WakelockPlus.enable().catchError((_) {});
     SystemChrome.setPreferredOrientations([
@@ -255,16 +274,6 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-  }
-
-  String get _formattedDuration {
-    final h = _durationSeconds ~/ 3600;
-    final m = (_durationSeconds % 3600) ~/ 60;
-    final s = _durationSeconds % 60;
-    if (h > 0) {
-      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-    }
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   // -------------------------------------------------------------------------
@@ -440,7 +449,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
       _disableCaptureProtection();
       _engineInitFuture = null;
       _timerTick?.cancel();
-      _durationSeconds = 0;
+      _duration.value = 0;
       WakelockPlus.disable().catchError((_) {});
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     }
@@ -463,8 +472,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
         return _OngoingUI(
           inPip: _inPip,
           overlay: overlay,
-          durationText: _formattedDuration,
-          durationSeconds: _durationSeconds,
+          duration: _duration,
           isVideoPaused: _isVideoPaused,
           isBeautyModalVisible: _isBeautyModalVisible,
           pipX: _pipX,
@@ -695,8 +703,7 @@ class _ConnectingCallUI extends StatelessWidget {
 class _OngoingUI extends ConsumerWidget {
   const _OngoingUI({
     required this.overlay,
-    required this.durationText,
-    required this.durationSeconds,
+    required this.duration,
     required this.inPip,
     required this.isVideoPaused,
     required this.isBeautyModalVisible,
@@ -716,8 +723,9 @@ class _OngoingUI extends ConsumerWidget {
   });
 
   final CallOverlayState overlay;
-  final String durationText;
-  final int durationSeconds;
+  /// Ticks once per second during the call. Only the duration label and the
+  /// earnings pill listen, so the video views never rebuild on a tick.
+  final ValueNotifier<int> duration;
   /// True while the call is floating in a Picture-in-Picture window — hide all
   /// controls/buttons in that mode (Android shrinks the whole activity).
   final bool inPip;
@@ -833,12 +841,15 @@ class _OngoingUI extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      Text(
-                        durationText,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600),
+                      ValueListenableBuilder<int>(
+                        valueListenable: duration,
+                        builder: (context, seconds, _) => Text(
+                          OngoingCallScreen.formatDuration(seconds),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ],
                   ),
@@ -916,7 +927,7 @@ class _OngoingUI extends ConsumerWidget {
               children: [
                 // EarningsOverlay
                 if (me != null) ...[
-                  EarningsOverlay(me: me, durationSeconds: durationSeconds),
+                  EarningsOverlay(me: me, duration: duration),
                   const SizedBox(height: 16),
                 ],
                 // Controls row

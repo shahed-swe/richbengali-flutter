@@ -38,7 +38,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  bool _isSending = false;
+  /// Whether a send is in flight. A ValueNotifier rather than plain state so
+  /// toggling it repaints only the send button, not the whole screen.
+  final ValueNotifier<bool> _isSending = ValueNotifier<bool>(false);
 
   /// Currently long-pressed / selected message id (for animation)
   String? _selectedMessageId;
@@ -74,7 +76,6 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _textController.addListener(() => setState(() {}));
     // Scroll-up pagination: load the previous history page when nearing the top.
     _scrollController.addListener(_maybeLoadOlder);
     // Defer socket setup + notification marking until after first frame
@@ -139,6 +140,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     WidgetsBinding.instance.removeObserver(this);
     _router?.routerDelegate.removeListener(_onRouterChanged);
     _textController.dispose();
+    _isSending.dispose();
     _scrollController.dispose();
     _chatMessageSub?.cancel();
     _chatMessageDeletedSub?.cancel();
@@ -267,10 +269,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
 
   Future<void> _sendMessage() async {
     final text = _textController.text.trim();
-    if (text.isEmpty || _isSending) return;
+    if (text.isEmpty || _isSending.value) return;
 
     final myId = ref.read(authProvider).user?.id ?? '';
-    setState(() => _isSending = true);
+    _isSending.value = true;
     _textController.clear();
 
     try {
@@ -286,7 +288,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         _textController.text = text;
       }
     } finally {
-      if (mounted) setState(() => _isSending = false);
+      if (mounted) _isSending.value = false;
     }
   }
 
@@ -859,8 +861,6 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   }
 
   Widget _buildInputToolbar(String myId) {
-    final hasText = _textController.text.trim().isNotEmpty;
-
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -916,45 +916,64 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               ),
             ),
           ),
-          // Send button — gradient
-          GestureDetector(
-            onTap: hasText && !_isSending ? _sendMessage : null,
-            child: Container(
-              width: 54,
-              height: 60,
-              decoration: BoxDecoration(
-                gradient: hasText
-                    ? const LinearGradient(
-                        colors: [Color(0xFFF43F5E), Color(0xFFFB7185)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
-                    : const LinearGradient(
-                        colors: [Color(0xFFE2E8F0), Color(0xFFCBD5E1)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                borderRadius: const BorderRadius.only(
-                  topRight: Radius.circular(22),
-                  bottomRight: Radius.circular(22),
-                ),
-                boxShadow: hasText
-                    ? [
-                        BoxShadow(
-                          color: const Color(0xFFF43F5E).withValues(alpha: 0.3),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
+          // Send button — gradient.
+          //
+          // Rebuilt via ValueListenableBuilder on the text controller and the
+          // sending flag. Previously a `_textController` listener called
+          // setState, so EVERY keystroke rebuilt this entire screen including
+          // the full message ListView, which made typing feel heavy. Now a
+          // keystroke repaints only this button.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _textController,
+            builder: (context, value, _) {
+              final hasText = value.text.trim().isNotEmpty;
+              return ValueListenableBuilder<bool>(
+                valueListenable: _isSending,
+                builder: (context, isSending, _) {
+                  return GestureDetector(
+                    onTap: hasText && !isSending ? _sendMessage : null,
+                    child: Container(
+                      width: 54,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        gradient: hasText
+                            ? const LinearGradient(
+                                colors: [Color(0xFFF43F5E), Color(0xFFFB7185)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              )
+                            : const LinearGradient(
+                                colors: [Color(0xFFE2E8F0), Color(0xFFCBD5E1)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                        borderRadius: const BorderRadius.only(
+                          topRight: Radius.circular(22),
+                          bottomRight: Radius.circular(22),
                         ),
-                      ]
-                    : null,
-              ),
-              alignment: Alignment.center,
-              child: Icon(
-                LucideIcons.send,
-                size: 20,
-                color: hasText ? Colors.white : const Color(0xFF94A3B8),
-              ),
-            ),
+                        boxShadow: hasText
+                            ? [
+                                BoxShadow(
+                                  color: const Color(0xFFF43F5E)
+                                      .withValues(alpha: 0.3),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        LucideIcons.send,
+                        size: 20,
+                        color:
+                            hasText ? Colors.white : const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
           ),
         ],
       ),

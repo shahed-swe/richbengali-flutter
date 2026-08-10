@@ -13,13 +13,15 @@ import '../../theme/theme.dart';
 /// Mirrors EarningsOverlay.tsx â€” blurred pill showing live earnings (female)
 /// or remaining balance minutes (male) during an ongoing call.
 class EarningsOverlay extends ConsumerStatefulWidget {
-  const EarningsOverlay({super.key, required this.me, this.durationSeconds = 0});
+  const EarningsOverlay({super.key, required this.me, required this.duration});
 
   final Me me;
 
-  /// Live call duration in seconds. Female live earnings are computed on-device
-  /// ($10/hour) from this, since the backend does not push live earnings.
-  final int durationSeconds;
+  /// Live call duration in seconds, ticking once per second. Female live
+  /// earnings are computed on-device ($10/hour) from this, since the backend
+  /// does not push live earnings. Taken as a ValueNotifier so a tick repaints
+  /// only the value text rather than the whole call screen.
+  final ValueNotifier<int> duration;
 
   @override
   ConsumerState<EarningsOverlay> createState() => _EarningsOverlayState();
@@ -78,12 +80,21 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
 
     // Live earnings = call minutes × $10/hour, computed on-device so the value
     // ticks up every second. If the backend ever pushes a higher figure, use it.
-    final computedEarnings =
-        widget.durationSeconds / 3600.0 * _femaleRatePerHourUsd;
-    final earnings = math.max(computedEarnings, _backendEarnings);
+    // Only this text subscribes to the duration notifier, so the once-a-second
+    // tick repaints a single label instead of the whole call screen.
     final valueText = isFemale
-        ? '\$${earnings.toStringAsFixed(2)}'
-        : '${_displayMinutes()}';
+        ? ValueListenableBuilder<int>(
+            valueListenable: widget.duration,
+            builder: (context, seconds, _) {
+              final computed = seconds / 3600.0 * _femaleRatePerHourUsd;
+              final earnings = math.max(computed, _backendEarnings);
+              return _ValueText(
+                text: '\$${earnings.toStringAsFixed(2)}',
+                color: iconColor,
+              );
+            },
+          )
+        : _ValueText(text: '${_displayMinutes()}', color: iconColor);
     final labelText = isFemale ? 'Earnings' : 'mins';
 
     return Container(
@@ -98,14 +109,7 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
         children: [
           Icon(LucideIcons.wallet, size: 16, color: iconColor),
           const SizedBox(width: 6),
-          Text(
-            valueText,
-            style: TextStyle(
-              color: iconColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
-          ),
+          valueText,
           const SizedBox(width: 4),
           Text(
             labelText,
@@ -120,3 +124,24 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
   }
 }
 
+
+/// The bold value shown in the earnings pill. Extracted so the female branch
+/// can rebuild it from a ValueListenableBuilder without duplicating styling.
+class _ValueText extends StatelessWidget {
+  const _ValueText({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: color,
+        fontWeight: FontWeight.bold,
+        fontSize: 16,
+      ),
+    );
+  }
+}
