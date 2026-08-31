@@ -55,6 +55,9 @@ class UsersRepository {
     });
   }
 
+  /// DELETE /users/me — permanently deletes the account + all associated data.
+  Future<void> deleteMyAccount() => _dio.delete('/users/me');
+
   /// GET /users/me/blocks — ids the current user has blocked.
   Future<List<String>> getBlockedIds() async {
     final resp = await _dio.get('/users/me/blocks');

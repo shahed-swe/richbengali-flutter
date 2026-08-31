@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/me_repository.dart';
+import '../../data/users_repository.dart';
 import '../../models/user.dart';
 import '../../state/auth_provider.dart';
 import '../../state/me_provider.dart';
@@ -104,6 +105,42 @@ class _MeScreenState extends ConsumerState<MeScreen> {
   Future<void> _handleLogout() async {
     await ref.read(authProvider.notifier).logout();
     if (mounted) context.go('/login');
+  }
+
+  Future<void> _handleDeleteAccount() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: const Text(
+          'This permanently deletes your account, profile, photos, messages and '
+          'all associated data. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(usersRepositoryProvider).deleteMyAccount();
+      await ref.read(authProvider.notifier).logout();
+      if (mounted) context.go('/login');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Could not delete account. Please try again.')),
+        );
+      }
+    }
   }
 
   Future<void> _handlePickAvatar() async {
@@ -570,8 +607,11 @@ class _MeScreenState extends ConsumerState<MeScreen> {
   }
 
   Widget _buildBottomBar() {
-    return Row(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
+        Row(
+          children: [
         // Logout — red circle
         GestureDetector(
           onTap: _handleLogout,
@@ -634,6 +674,16 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                     ),
             ),
           ),
+        ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Delete account — required by Apple (5.1.1(v)) + Play data-deletion.
+        TextButton.icon(
+          onPressed: _saving ? null : _handleDeleteAccount,
+          icon: const Icon(LucideIcons.trash2, size: 16, color: AppColors.danger),
+          label: Text('Delete account',
+              style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600)),
         ),
       ],
     );
