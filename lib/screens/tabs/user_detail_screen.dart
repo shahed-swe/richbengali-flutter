@@ -9,6 +9,7 @@ import '../../models/ref_option.dart';
 import '../../data/refs_repository.dart';
 import '../../data/relations_repository.dart';
 import '../../widgets/image_viewer.dart';
+import '../../widgets/safety/report_block_menu.dart';
 import '../../theme/theme.dart';
 
 // Ref data providers (family by type string)
@@ -164,6 +165,24 @@ class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
                                     color: Colors.white,
                                     size: 24,
                                   ),
+                                ),
+                              ),
+                            ),
+
+                            // Report / Block overlay (top-right)
+                            Positioned(
+                              top: MediaQuery.of(context).padding.top + 8,
+                              right: 12,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: ReportBlockMenu(
+                                  userId: widget.userId,
+                                  userName: user.name,
+                                  iconColor: Colors.white,
+                                  onBlocked: () => context.pop(),
                                 ),
                               ),
                             ),

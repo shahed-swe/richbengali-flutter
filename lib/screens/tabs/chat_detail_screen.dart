@@ -20,6 +20,7 @@ import '../../data/messages_repository.dart';
 import '../../data/users_repository.dart';
 import '../../router/app_router.dart';
 import '../../services/socket_service.dart';
+import '../../widgets/safety/report_block_menu.dart';
 
 // ---------------------------------------------------------------------------
 // ChatDetailScreen
@@ -609,13 +610,43 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               ),
             ),
           ],
-          // Clear conversation menu
+          // Overflow menu: report / block / clear
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Color(0xFF6B7280)),
             onSelected: (value) {
-              if (value == 'clear') _clearConversation();
+              if (value == 'clear') {
+                _clearConversation();
+              } else if (value == 'report') {
+                showReportSheet(context, ref,
+                    userId: _otherUserId, userName: otherUser?.name);
+              } else if (value == 'block') {
+                confirmBlock(context, ref,
+                    userId: _otherUserId,
+                    userName: otherUser?.name,
+                    onBlocked: () => context.pop());
+              }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'report',
+                child: Row(
+                  children: [
+                    Icon(Icons.flag_outlined, size: 16, color: Color(0xFF374151)),
+                    SizedBox(width: 8),
+                    Text('Report'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'block',
+                child: Row(
+                  children: [
+                    Icon(Icons.block, size: 16, color: Color(0xFFF43F5E)),
+                    SizedBox(width: 8),
+                    Text('Block'),
+                  ],
+                ),
+              ),
               const PopupMenuItem(
                 value: 'clear',
                 child: Row(

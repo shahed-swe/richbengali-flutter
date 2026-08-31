@@ -38,6 +38,30 @@ class UsersRepository {
         : data as Map<String, dynamic>;
     return User.fromJson(userMap);
   }
+
+  /// POST /users/:id/block — hides each user from the other + blocks chat/calls.
+  Future<void> blockUser(String id) => _dio.post('/users/$id/block');
+
+  /// DELETE /users/:id/block — unblock.
+  Future<void> unblockUser(String id) => _dio.delete('/users/$id/block');
+
+  /// POST /users/:id/report — reason ∈ child_safety | harassment | spam_scam |
+  /// nudity_sexual | fake_profile | other.
+  Future<void> reportUser(String id,
+      {required String reason, String? details}) async {
+    await _dio.post('/users/$id/report', data: {
+      'reason': reason,
+      if (details != null && details.trim().isNotEmpty) 'details': details.trim(),
+    });
+  }
+
+  /// GET /users/me/blocks — ids the current user has blocked.
+  Future<List<String>> getBlockedIds() async {
+    final resp = await _dio.get('/users/me/blocks');
+    final data = resp.data;
+    final list = (data is Map ? data['data'] : data) as List? ?? [];
+    return list.map((e) => e.toString()).toList();
+  }
 }
 
 final usersRepositoryProvider = Provider<UsersRepository>((ref) {
