@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_callkit_incoming/entities/android_params.dart';
 import 'package:flutter_callkit_incoming/entities/call_event.dart';
@@ -14,6 +15,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/env.dart';
+import '../core/storage.dart';
 import '../state/call_overlay_provider.dart';
 import 'call_service.dart';
 import 'socket_service.dart';
@@ -167,6 +170,35 @@ class CallkitService {
       ));
     } catch (e) {
       debugPrint('[CallKit] showIncomingFromPush error: $e');
+    }
+  }
+
+  /// Decline a call over HTTP instead of the socket. Used when the app was
+  /// CLOSED and woken only by the push: there is no connected socket, so
+  /// `emit('call:reject')` is silently dropped and the CALLER keeps ringing.
+  /// Deliberately self-contained (own Dio, token straight from storage) so it
+  /// also works from the FCM background isolate, where Riverpod providers and
+  /// the app's dio instance don't exist.
+  static Future<void> rejectViaHttp(String callId, String callerId) async {
+    try {
+      final token = await AppStorage.getToken();
+      if (token == null || token.isEmpty) {
+        debugPrint('[CallKit] HTTP reject skipped — no auth token');
+        return;
+      }
+      final dio = Dio(BaseOptions(
+        baseUrl: Env.apiBase,
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 8),
+      ));
+      await dio.post(
+        '/calls/reject',
+        data: {'callId': callId, 'callerId': callerId},
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      debugPrint('[CallKit] reject delivered over HTTP: $callId');
+    } catch (e) {
+      debugPrint('[CallKit] HTTP reject failed: $e');
     }
   }
 
@@ -591,8 +623,16 @@ class CallkitService {
       if (overlay.activeCall != null && overlay.callState == 'ongoing') {
         socketService.endCall(callId: id);
       } else {
-        debugPrint('[CallKit] reject → callId=$id callerId="$callerId"');
-        socketService.rejectCall(callId: id, callerId: callerId);
+        debugPrint('[CallKit] reject → callId=$id callerId="$callerId" '
+            'socket=${socketService.connected}');
+        if (socketService.connected) {
+          socketService.rejectCall(callId: id, callerId: callerId);
+        } else {
+          // App was CLOSED: woken only by the push, so there is no live socket
+          // and emit() would be silently dropped, leaving the caller ringing
+          // until the server's 45s timeout. Send it over HTTP instead.
+          await rejectViaHttp(id, callerId);
+        }
       }
 
       // Leave Agora
