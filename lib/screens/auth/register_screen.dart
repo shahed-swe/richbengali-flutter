@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../data/auth_repository.dart';
+import '../../services/phone_auth_service.dart';
 import '../../theme/theme.dart';
 import '../../widgets/widgets.dart';
 
@@ -31,6 +32,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   // Phone-specific
   final _phoneCtrl = TextEditingController();
+  final _phoneAuth = PhoneAuthService();
 
   // OTP
   final _otpCtrl = TextEditingController();
@@ -107,24 +109,94 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     }
 
     setState(() => _loading = true);
-    try {
-      final target = _tab == 'email' ? _emailCtrl.text.trim() : _phoneCtrl.text.trim();
-      await ref.read(authRepositoryProvider).requestOtp(
-            target: target,
-            channel: _tab,
-            purpose: 'register',
+    if (_tab == 'email') {
+      // Email OTP still goes through the backend (Brevo email).
+      try {
+        await ref.read(authRepositoryProvider).requestOtp(
+              target: _emailCtrl.text.trim(),
+              channel: 'email',
+              purpose: 'register',
+            );
+        if (mounted) {
+          setState(() {
+            _otpSent = true;
+            _loading = false;
+          });
+          _startCooldown();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Code sent to your email'), backgroundColor: Colors.green),
           );
-      setState(() => _otpSent = true);
-      _startCooldown();
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _globalError = e.toString().replaceFirst('Exception: ', '');
+            _loading = false;
+          });
+        }
+      }
+    } else {
+      // Phone OTP now uses Firebase Phone Auth (Google sends the SMS).
+      try {
+        await _phoneAuth.sendCode(
+          phoneNumber: _phoneCtrl.text.trim(),
+          onCodeSent: () {
+            if (mounted) {
+              setState(() {
+                _otpSent = true;
+                _loading = false;
+              });
+              _startCooldown();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Code sent to your phone'), backgroundColor: Colors.green),
+              );
+            }
+          },
+          onError: (err) {
+            if (mounted) {
+              setState(() {
+                _globalError = err;
+                _loading = false;
+              });
+            }
+          },
+          onAutoVerified: _completePhoneRegister,
+        );
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _globalError = e.toString().replaceFirst('Exception: ', '');
+            _loading = false;
+          });
+        }
+      }
+    }
+  }
+
+  /// Finish a phone registration once we have a Firebase idToken (from manual
+  /// code entry or Android auto-retrieval), passing the collected profile.
+  Future<void> _completePhoneRegister(String idToken) async {
+    try {
+      await ref.read(authRepositoryProvider).phoneSignIn(
+            idToken: idToken,
+            name: _nameCtrl.text.trim(),
+            age: _ageCtrl.text.trim(),
+            gender: _gender,
+            city: _cityCtrl.text.trim(),
+          );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Code sent to your $_tab'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Account created successfully!'), backgroundColor: Colors.green),
         );
+        context.go('/home');
       }
     } catch (e) {
-      setState(() => _globalError = e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _globalError = e.toString().replaceFirst('Exception: ', '');
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -149,25 +221,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               city: _cityCtrl.text.trim(),
               code: _otpCtrl.text.trim(),
             );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Account created successfully!'), backgroundColor: Colors.green),
+          );
+          context.go('/home');
+        }
       } else {
-        await ref.read(authRepositoryProvider).verifyOtp(
-              target: _phoneCtrl.text.trim(),
-              channel: 'phone',
-              purpose: 'register',
-              code: _otpCtrl.text.trim(),
-              profile: {
-                'name': _nameCtrl.text.trim(),
-                'age': int.tryParse(_ageCtrl.text) ?? 18,
-                'gender': _gender,
-                'city': _cityCtrl.text.trim(),
-              },
-            );
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Account created successfully!'), backgroundColor: Colors.green),
-        );
-        context.go('/home');
+        // Firebase phone: exchange the SMS code for an idToken, then register.
+        final idToken = await _phoneAuth.confirmCode(_otpCtrl.text.trim());
+        await _completePhoneRegister(idToken);
       }
     } catch (e) {
       setState(() => _globalError = e.toString().replaceFirst('Exception: ', ''));
@@ -212,18 +275,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Tab toggle
-                          _TabToggle(
-                            active: _tab,
-                            onChanged: (t) => setState(() {
-                              _tab = t;
-                              _errors = {};
-                              _globalError = null;
-                              _otpSent = false;
-                              _otpCtrl.clear();
-                            }),
-                          ),
-                          const SizedBox(height: 16),
+                          // Phone signup temporarily disabled — email only.
 
                           // Common fields (only before OTP)
                           if (!_otpSent) ...[

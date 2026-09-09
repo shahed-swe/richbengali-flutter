@@ -7,6 +7,7 @@ import 'router/app_router.dart';
 import 'screens/call/ongoing_call_screen.dart';
 import 'services/callkit_service.dart';
 import 'services/local_notifications_service.dart';
+import 'services/oem_setup_service.dart';
 import 'services/push_service.dart';
 import 'services/socket_service.dart';
 import 'services/voip_push_service.dart';
@@ -176,6 +177,19 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
         await ref.read(callkitServiceProvider).ensureAndroidCallPermissions();
       } catch (e) {
         debugPrint('[App] android call permissions error: $e');
+      }
+
+      // Xiaomi/Redmi/Oppo/Realme/Vivo/Huawei/Tecno skins ALSO need Autostart and
+      // "display pop-up windows while running in background". Neither has an
+      // Android API, so they can't be requested with a permission dialog — and
+      // without them the OEM kills the app (no push at all once it's closed) and
+      // blocks the full-screen incoming-call UI. Walk the user through it once.
+      try {
+        if (await OemSetupService.needsSetup()) {
+          ref.read(goRouterProvider).push('/call-setup');
+        }
+      } catch (e) {
+        debugPrint('[App] OEM setup check error: $e');
       }
     }
   }

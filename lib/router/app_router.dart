@@ -5,6 +5,7 @@ import '../state/auth_provider.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/auth/register_screen.dart';
 import '../screens/auth/forgot_screen.dart';
+import '../screens/setup/call_setup_screen.dart';
 import '../screens/shell/main_shell.dart';
 import '../screens/tabs/home_screen.dart';
 import '../screens/tabs/favorites_screen.dart';
@@ -91,6 +92,12 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/forgot',
         builder: (context, state) => const ForgotScreen(),
+      ),
+      // One-time guide for OEM skins (Xiaomi/Oppo/Vivo/…) that block background
+      // apps. Those settings have no Android API, so we can only deep-link them.
+      GoRoute(
+        path: '/call-setup',
+        builder: (context, state) => const CallSetupScreen(),
       ),
 
       // Main shell with 5 branches (each keeps its own navigator stack)

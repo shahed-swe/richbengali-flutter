@@ -130,6 +130,33 @@ class AuthRepository {
     }
   }
 
+  /// POST /auth/login/phone — Firebase phone sign-in.
+  /// Existing phone → logs in. New phone → registers (pass profile fields).
+  Future<AuthResult> phoneSignIn({
+    required String idToken,
+    String? name,
+    String? age,
+    String? gender,
+    String? city,
+    String? fcmToken,
+  }) async {
+    try {
+      final resp = await _dio.post('/auth/login/phone', data: {
+        'idToken': idToken,
+        if (name != null) 'name': name,
+        if (age != null) 'age': int.tryParse(age) ?? 18,
+        if (gender != null) 'gender': gender,
+        if (city != null) 'city': city,
+        if (fcmToken != null) 'fcmToken': fcmToken,
+      });
+      final result = _parseAuthResponse(resp.data);
+      await _ref.read(authProvider.notifier).setAuth(result.token, result.user);
+      return result;
+    } on DioException catch (e) {
+      throw Exception(_extractMessage(e, 'Phone sign-in failed'));
+    }
+  }
+
   /// POST /auth/otp/request
   Future<String> requestOtp({
     required String target,

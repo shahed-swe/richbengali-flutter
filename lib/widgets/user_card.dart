@@ -183,7 +183,7 @@ class _Placeholder extends StatelessWidget {
   }
 }
 
-class _CircleButton extends StatelessWidget {
+class _CircleButton extends StatefulWidget {
   const _CircleButton({
     required this.isActive,
     required this.child,
@@ -192,22 +192,55 @@ class _CircleButton extends StatelessWidget {
 
   final bool isActive;
   final Widget child;
-  final VoidCallback onTap;
+
+  /// Async action — while it runs, the button shows a spinner and ignores taps
+  /// so the user gets immediate feedback (and can't double-tap).
+  final Future<void> Function() onTap;
+
+  @override
+  State<_CircleButton> createState() => _CircleButtonState();
+}
+
+class _CircleButtonState extends State<_CircleButton> {
+  bool _busy = false;
+
+  Future<void> _handleTap() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onTap();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: _busy ? null : _handleTap,
       child: Container(
         width: 32,
         height: 32,
         decoration: BoxDecoration(
-          color: isActive
+          color: widget.isActive
               ? const Color(0xF2FFFFFF)
               : const Color(0x73000000),
           shape: BoxShape.circle,
         ),
-        child: Center(child: child),
+        child: Center(
+          child: _busy
+              ? SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      widget.isActive ? AppColors.brandPink : Colors.white,
+                    ),
+                  ),
+                )
+              : widget.child,
+        ),
       ),
     );
   }

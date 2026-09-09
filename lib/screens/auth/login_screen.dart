@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/version_service.dart';
 import '../../data/auth_repository.dart';
+import '../../services/phone_auth_service.dart';
 import '../../theme/theme.dart';
 import '../../widgets/widgets.dart';
 
@@ -28,6 +29,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   // Phone state
   final _phoneCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
+  final _phoneAuth = PhoneAuthService();
   bool _otpSent = false;
   String _phoneError = '';
   bool _phoneLoading = false;
@@ -64,34 +66,58 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _phoneError = '');
     final phone = _phoneCtrl.text.trim();
     if (!phone.startsWith('+') || phone.length < 8) {
-      setState(() => _phoneError = 'Enter valid phone number with country code (e.g. +1...)');
+      setState(() => _phoneError = 'Enter valid phone number with country code (e.g. +880...)');
       return;
     }
     setState(() => _phoneLoading = true);
     try {
-      await ref.read(authRepositoryProvider).requestOtp(
-            target: phone,
-            channel: 'phone',
-            purpose: 'login',
-          );
-      setState(() => _otpSent = true);
+      await _phoneAuth.sendCode(
+        phoneNumber: phone,
+        onCodeSent: () {
+          if (!mounted) return;
+          setState(() {
+            _otpSent = true;
+            _phoneLoading = false;
+          });
+        },
+        onError: (err) {
+          if (!mounted) return;
+          setState(() {
+            _phoneError = err;
+            _phoneLoading = false;
+          });
+        },
+        onAutoVerified: (idToken) async {
+          // Android auto-retrieval: sign in without manual code entry.
+          try {
+            await ref.read(authRepositoryProvider).phoneSignIn(idToken: idToken);
+            if (mounted) context.go('/home');
+          } catch (e) {
+            if (!mounted) return;
+            setState(() {
+              _phoneError = e.toString().replaceFirst('Exception: ', '');
+              _phoneLoading = false;
+            });
+          }
+        },
+      );
     } catch (e) {
-      setState(() => _phoneError = e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _phoneLoading = false);
+      if (!mounted) return;
+      setState(() {
+        _phoneError = e.toString().replaceFirst('Exception: ', '');
+        _phoneLoading = false;
+      });
     }
   }
 
   Future<void> _handleVerifyOtp() async {
-    setState(() => _phoneError = '');
-    setState(() => _phoneLoading = true);
+    setState(() {
+      _phoneError = '';
+      _phoneLoading = true;
+    });
     try {
-      await ref.read(authRepositoryProvider).verifyOtp(
-            target: _phoneCtrl.text.trim(),
-            channel: 'phone',
-            purpose: 'login',
-            code: _otpCtrl.text.trim(),
-          );
+      final idToken = await _phoneAuth.confirmCode(_otpCtrl.text.trim());
+      await ref.read(authRepositoryProvider).phoneSignIn(idToken: idToken);
       if (mounted) context.go('/home');
     } catch (e) {
       setState(() => _phoneError = e.toString().replaceFirst('Exception: ', ''));
@@ -136,19 +162,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       padding: const EdgeInsets.all(24),
                       child: Column(
                         children: [
-                          _TabToggle(
-                            active: _tab,
-                            onChanged: (t) => setState(() {
-                              _tab = t;
-                              _emailError = '';
-                              _phoneError = '';
-                              _otpSent = false;
-                              _otpCtrl.clear();
-                            }),
-                          ),
-                          const SizedBox(height: 16),
-                          if (_tab == 'email') _buildEmailTab(),
-                          if (_tab == 'phone') _buildPhoneTab(),
+                          // Phone login temporarily disabled — email only.
+                          _buildEmailTab(),
                         ],
                       ),
                     ),

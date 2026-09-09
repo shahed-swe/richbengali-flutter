@@ -11,6 +11,18 @@ class AppStorage {
   static const _tokenKey      = 'auth_token';
   static const _prefTokenKey  = '@auth_token';
   static const _prefUserKey   = '@user';
+  static const _prefApiBaseKey = '@api_base';
+
+  /// Mirror the API base into plain SharedPreferences. The native
+  /// CallDeclineReceiver (Android) needs it to POST /calls/reject when the user
+  /// declines a call while the app is CLOSED — at that point there is no Flutter
+  /// engine, so it can't read dotenv. Call once at startup.
+  static Future<void> saveApiBase(String base) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefApiBaseKey, base);
+    } catch (_) {}
+  }
 
   // ---------- Auth save ----------
   static Future<void> saveAuth(String token, String userJson) async {

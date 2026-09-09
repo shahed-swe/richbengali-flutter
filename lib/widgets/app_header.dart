@@ -28,11 +28,15 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 16),
-            child: Image.asset(
-              'assets/logo.png',
-              width: 120,
-              height: 32,
-              fit: BoxFit.contain,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => context.go('/home'),
+              child: Image.asset(
+                'assets/logo.png',
+                width: 120,
+                height: 32,
+                fit: BoxFit.contain,
+              ),
             ),
           ),
           const _HeaderRight(),

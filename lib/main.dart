@@ -11,6 +11,8 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'app.dart';
 import 'core/device_id.dart';
+import 'core/env.dart';
+import 'core/storage.dart';
 import 'core/version_service.dart';
 import 'services/local_notifications_service.dart';
 import 'services/push_service.dart';
@@ -48,6 +50,14 @@ Future<void> main() async {
   // Load environment variables first — everything else may depend on them.
   // ---------------------------------------------------------------------------
   await dotenv.load(fileName: '.env');
+
+  // Mirror the API base into plain prefs for the native call-decline receiver,
+  // which has to reach the server with no Flutter engine running (app closed).
+  try {
+    await AppStorage.saveApiBase(Env.apiBase);
+  } catch (e) {
+    debugPrint('[main] saveApiBase error: $e');
+  }
 
   // ---------------------------------------------------------------------------
   // Initialise Firebase (reads GoogleService-Info.plist / google-services.json).

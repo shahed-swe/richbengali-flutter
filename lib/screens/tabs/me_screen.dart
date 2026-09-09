@@ -677,14 +677,10 @@ class _MeScreenState extends ConsumerState<MeScreen> {
         ),
           ],
         ),
-        const SizedBox(height: 8),
-        // Delete account — required by Apple (5.1.1(v)) + Play data-deletion.
-        TextButton.icon(
-          onPressed: _saving ? null : _handleDeleteAccount,
-          icon: const Icon(LucideIcons.trash2, size: 16, color: AppColors.danger),
-          label: Text('Delete account',
-              style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600)),
-        ),
+        // Delete account button temporarily hidden (post-delete black-screen
+        // bug). NOTE: Apple Guideline 5.1.1(v) REQUIRES in-app account deletion,
+        // so this must be restored (with the black screen fixed) before the next
+        // App Store submission or the app can be rejected.
       ],
     );
   }

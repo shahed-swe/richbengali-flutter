@@ -30,6 +30,8 @@ class UserDetailScreen extends ConsumerStatefulWidget {
 class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
   String? _viewedImage;
   bool _visitRecorded = false;
+  bool _favBusy = false;
+  bool _likeBusy = false;
 
   @override
   void initState() {
@@ -463,13 +465,19 @@ class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
                         // Favorite toggle
                         GestureDetector(
                           onTap: () async {
-                            await ref
-                                .read(relationStatusProvider(widget.userId)
-                                    .notifier)
-                                .toggleFavorite();
-                            ref
-                                .read(favoritesProvider.notifier)
-                                .refresh();
+                            if (_favBusy) return;
+                            setState(() => _favBusy = true);
+                            try {
+                              await ref
+                                  .read(relationStatusProvider(widget.userId)
+                                      .notifier)
+                                  .toggleFavorite();
+                              ref
+                                  .read(favoritesProvider.notifier)
+                                  .refresh();
+                            } finally {
+                              if (mounted) setState(() => _favBusy = false);
+                            }
                           },
                           child: Container(
                             width: 48,
@@ -481,13 +489,24 @@ class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
                                   Border.all(color: AppColors.gray100),
                             ),
                             child: Center(
-                              child: Icon(
-                                LucideIcons.heart,
-                                size: 20,
-                                color: (status?.isFavorited ?? false)
-                                    ? AppColors.rose500
-                                    : AppColors.gray400,
-                              ),
+                              child: _favBusy
+                                  ? SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                AppColors.rose500),
+                                      ),
+                                    )
+                                  : Icon(
+                                      LucideIcons.heart,
+                                      size: 20,
+                                      color: (status?.isFavorited ?? false)
+                                          ? AppColors.rose500
+                                          : AppColors.gray400,
+                                    ),
                             ),
                           ),
                         ),
@@ -542,10 +561,18 @@ class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
 
                         // Like toggle
                         GestureDetector(
-                          onTap: () => ref
-                              .read(relationStatusProvider(widget.userId)
-                                  .notifier)
-                              .toggleLike(),
+                          onTap: () async {
+                            if (_likeBusy) return;
+                            setState(() => _likeBusy = true);
+                            try {
+                              await ref
+                                  .read(relationStatusProvider(widget.userId)
+                                      .notifier)
+                                  .toggleLike();
+                            } finally {
+                              if (mounted) setState(() => _likeBusy = false);
+                            }
+                          },
                           child: Container(
                             width: 48,
                             height: 48,
@@ -556,13 +583,24 @@ class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
                                   Border.all(color: AppColors.gray100),
                             ),
                             child: Center(
-                              child: Icon(
-                                LucideIcons.thumbsUp,
-                                size: 20,
-                                color: (status?.isLiked ?? false)
-                                    ? const Color(0xFF3b82f6)
-                                    : AppColors.gray400,
-                              ),
+                              child: _likeBusy
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                Color(0xFF3b82f6)),
+                                      ),
+                                    )
+                                  : Icon(
+                                      LucideIcons.thumbsUp,
+                                      size: 20,
+                                      color: (status?.isLiked ?? false)
+                                          ? const Color(0xFF3b82f6)
+                                          : AppColors.gray400,
+                                    ),
                             ),
                           ),
                         ),

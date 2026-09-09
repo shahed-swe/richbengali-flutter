@@ -96,6 +96,19 @@
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />
 
+        <!-- Reports a declined call to the server natively. flutter_callkit_incoming
+             only forwards the decline to Dart, which needs a live engine with the
+             listener registered — that never exists when the app is CLOSED, so the
+             decline was dropped and the caller kept ringing. The action is
+             "<applicationId>.<plugin ACTION_CALL_DECLINE>". -->
+        <receiver
+            android:name=".CallDeclineReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.richbengali.app.com.hiennv.flutter_callkit_incoming.ACTION_CALL_DECLINE" />
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

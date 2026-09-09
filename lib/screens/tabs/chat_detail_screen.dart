@@ -342,7 +342,17 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     }
   }
 
+  /// Drop focus so the soft keyboard closes. Used when tapping the conversation
+  /// and before starting a call — otherwise the keyboard stayed open on top of
+  /// the calling screen until the user left the chat entirely.
+  void _dismissKeyboard() {
+    final focus = FocusScope.of(context);
+    if (focus.hasFocus) focus.unfocus();
+  }
+
   void _initiateCall(String callType) {
+    // Close the keyboard first, or it sits over the outgoing-call screen.
+    _dismissKeyboard();
     final me = ref.read(meProvider).asData?.value;
     final otherUser = ref.read(_otherUserProvider(_otherUserId)).asData?.value;
 
@@ -465,7 +475,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             ),
             const Divider(height: 1, color: Color(0xFFF1F5F9)),
             Expanded(
-              child: _buildMessageList(myId),
+              // Tapping the conversation dismisses the keyboard (Messenger-style).
+              // Without this the keyboard stayed up until you left the chat —
+              // worst on iOS, which has no system back button to dismiss it.
+              // opaque so taps on empty space between bubbles register too.
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _dismissKeyboard,
+                child: _buildMessageList(myId),
+              ),
             ),
             _buildInputToolbar(myId),
             // Bottom padding for system nav bar

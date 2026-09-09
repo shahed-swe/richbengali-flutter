@@ -442,6 +442,13 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
   void _handleCallStateChange(
       CallOverlayState overlay, String? callState) {
+    // Any call UI coming up must close the soft keyboard — otherwise a keyboard
+    // opened in the chat stays on top of the call screen (there's no back button
+    // to dismiss it on iOS). Uses FocusManager so it works from this overlay,
+    // which is mounted above the routes rather than inside the chat screen.
+    if (callState != null) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
     if (callState == 'outgoing') {
       // Start engine early so it is ready when the call is accepted.
       // Enable capture protection as soon as call begins.
