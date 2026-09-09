@@ -210,6 +210,12 @@ class CallkitService {
         count: 1,
       ),
       android: AndroidParams(
+        // NOTE: on Android 14+ the plugin uses Notification.CallStyle either way,
+        // and the platform rejects it ("CallStyle notifications must be for a
+        // foreground service or user initated job or use a fullScreenIntent")
+        // whenever the full-screen intent gets stripped — which happens when the
+        // OEM blocks background window starts (on Xiaomi/MIUI that is the
+        // "Display pop-up windows while running in background" permission).
         isCustomNotification: true,
         isShowLogo: false,
         ringtonePath: 'system_ringtone_default',
