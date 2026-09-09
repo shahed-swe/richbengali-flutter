@@ -10,6 +10,7 @@ import 'package:flutter_callkit_incoming/entities/ios_params.dart';
 import 'package:flutter_callkit_incoming/entities/notification_params.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
@@ -269,8 +270,38 @@ class CallkitService {
   // always sets the full-screen intent, so this permission is the missing piece.
   // Sends the user to the system settings page for this app when it's not granted.
   // ---------------------------------------------------------------------------
-  Future<void> ensureFullScreenIntentPermission() async {
+  /// Asks the user — with the normal on-screen system prompts — for everything
+  /// Android needs to ring and notify reliably. Each step is skipped when it is
+  /// already granted, and they run one after another so the dialogs don't stack:
+  ///
+  ///  1. POST_NOTIFICATIONS (Android 13+) — without it nothing can be shown.
+  ///  2. Ignore battery optimisation — without it Android/OEM skins stop
+  ///     delivering FCM once the app is swiped away, so messages and calls never
+  ///     arrive while the app is closed.
+  ///  3. USE_FULL_SCREEN_INTENT (Android 14+) — without it an incoming call can
+  ///     only appear as a notification instead of the full-screen ringing UI.
+  ///     This one has no system dialog, so it opens the app's settings page.
+  Future<void> ensureAndroidCallPermissions() async {
     if (!Platform.isAndroid) return;
+
+    try {
+      if (!await Permission.notification.isGranted) {
+        final s = await Permission.notification.request();
+        debugPrint('[CallKit] notification permission → $s');
+      }
+    } catch (e) {
+      debugPrint('[CallKit] notification permission error: $e');
+    }
+
+    try {
+      if (!await Permission.ignoreBatteryOptimizations.isGranted) {
+        final s = await Permission.ignoreBatteryOptimizations.request();
+        debugPrint('[CallKit] ignoreBatteryOptimizations → $s');
+      }
+    } catch (e) {
+      debugPrint('[CallKit] battery-optimisation permission error: $e');
+    }
+
     try {
       final can = await FlutterCallkitIncoming.canUseFullScreenIntent();
       debugPrint('[CallKit] canUseFullScreenIntent = $can');
@@ -279,7 +310,7 @@ class CallkitService {
         await FlutterCallkitIncoming.requestFullIntentPermission();
       }
     } catch (e) {
-      debugPrint('[CallKit] ensureFullScreenIntentPermission error: $e');
+      debugPrint('[CallKit] fullScreenIntent permission error: $e');
     }
   }
 

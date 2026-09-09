@@ -55,10 +55,28 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
     try {
       ref.read(callkitServiceProvider).setupListeners();
       ref.read(socketServiceProvider); // force-create → connect on auth hydrate
-      final auth = ref.read(authProvider);
-      if (auth.isLoggedIn) {
-        _startPushServices();
-      }
+
+      // Start push services as soon as auth is known — via listenManual so it is
+      // NOT tied to build()/frames. AuthState starts logged-out and _hydrate()
+      // restores the session asynchronously; a returning user therefore never
+      // produced a "logged out -> logged in" transition inside build(), and when
+      // the app starts with the screen off Flutter renders no frames at all, so
+      // anything relying on build() or addPostFrameCallback never runs. That left
+      // a restored session registering NO push token (no notifications, no calls).
+      // fireImmediately covers the already-hydrated case.
+      ref.listenManual<AuthState>(
+        authProvider,
+        (prev, next) {
+          debugPrint('[App] auth changed: hydrated=${next.hydrated} '
+              'isLoggedIn=${next.isLoggedIn} started=$_servicesStarted');
+          if (next.isLoggedIn && !_servicesStarted) {
+            _startPushServices();
+          } else if (!next.isLoggedIn && _servicesStarted) {
+            _stopPushServices();
+          }
+        },
+        fireImmediately: true,
+      );
     } catch (e) {
       debugPrint('[App] initState service kick error: $e');
     }
@@ -138,21 +156,27 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
       }
     }
 
-    // Android 14+: without USE_FULL_SCREEN_INTENT an incoming call can only show
-    // as a notification, never the full-screen ringing UI. Ask for it here.
-    if (Platform.isAndroid) {
-      try {
-        await ref.read(callkitServiceProvider).ensureFullScreenIntentPermission();
-      } catch (e) {
-        debugPrint('[App] fullScreenIntent permission error: $e');
-      }
-    }
-
-    // Init FCM — requests permission, gets token, sets up foreground handler.
+    // Init FCM FIRST — requests notification permission, gets the FCM token and
+    // syncs it to the server. This MUST come before the extra Android prompts:
+    // the full-screen-intent request navigates the user out to a system settings
+    // page, which would background the app before it ever fetched its token (that
+    // left Android registered with no fcm_token at all, so nothing could arrive).
     try {
       await ref.read(pushServiceProvider).init();
     } catch (e) {
       debugPrint('[App] pushService.init error: $e');
+    }
+
+    // Android: now ask on-screen for the battery-optimisation exemption (so FCM
+    // still arrives when the app is closed) and the Android 14+ full-screen-intent
+    // permission (so calls ring full-screen instead of only as a notification).
+    // Done AFTER the token is registered, so navigating to settings can't break it.
+    if (Platform.isAndroid) {
+      try {
+        await ref.read(callkitServiceProvider).ensureAndroidCallPermissions();
+      } catch (e) {
+        debugPrint('[App] android call permissions error: $e');
+      }
     }
   }
 
@@ -199,8 +223,16 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
       _previousUserId = nextUserId;
     });
 
-    // Trigger on first build if token was already restored from storage
-    final auth = ref.read(authProvider);
+    // Start push services for an ALREADY logged-in user (session restored from
+    // storage). This MUST be a watch, not a read: AuthState starts logged-out and
+    // _hydrate() restores the token asynchronously, so a read here only ever sees
+    // the pre-hydration state and this never fires. With ref.read the only path
+    // left was the "logged out -> logged in" listener above, which a restored
+    // session never triggers — so a returning user registered NO push token at
+    // all (no notifications, no calls) until they manually logged out and in.
+    final auth = ref.watch(authProvider);
+    debugPrint('[App] build: hydrated=${auth.hydrated} '
+        'isLoggedIn=${auth.isLoggedIn} servicesStarted=$_servicesStarted');
     if (auth.isLoggedIn && !_servicesStarted) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _startPushServices());
     }
