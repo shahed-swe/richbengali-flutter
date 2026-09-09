@@ -116,15 +116,11 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
 
     debugPrint('[App] Starting push services');
 
-    // Init FCM — requests permission, gets token, sets up foreground handler
-    try {
-      await ref.read(pushServiceProvider).init();
-    } catch (e) {
-      debugPrint('[App] pushService.init error: $e');
-    }
-
-    // iOS: register for VoIP push (PushKit) — no-op on Android.
-    // Mirrors App.tsx VoipPushNotification.addEventListener('register', ...)
+    // iOS: register for VoIP push (PushKit) FIRST. register() also completes any
+    // cold-start CallKit accept and delivers the VoIP token. It must NOT be
+    // blocked behind pushService.init(), which polls up to ~20s for the APNs
+    // token — that delay previously left a just-accepted call hanging on
+    // "Calling…" and pushed the first VoIP-token sync ~20s late. No-op on Android.
     if (Platform.isIOS) {
       try {
         final voipService = ref.read(voipPushServiceProvider);
@@ -140,6 +136,13 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
       } catch (e) {
         debugPrint('[App] voipPushService.register error: $e');
       }
+    }
+
+    // Init FCM — requests permission, gets token, sets up foreground handler.
+    try {
+      await ref.read(pushServiceProvider).init();
+    } catch (e) {
+      debugPrint('[App] pushService.init error: $e');
     }
   }
 

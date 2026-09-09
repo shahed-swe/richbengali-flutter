@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../core/env.dart';
 import '../core/dio_client.dart';
@@ -74,6 +75,19 @@ class CallService {
   // -------------------------------------------------------------------------
 
   Future<void> initEngine({required bool isVideo}) async {
+    // Request mic (+ camera) permission BEFORE creating/joining the engine.
+    // The CallKit-accept path calls initEngine directly (bypassing the in-UI
+    // permission prompt), so without this an ANSWERED call joins Agora with a
+    // dead mic/camera on Android (RECORD_AUDIO/CAMERA are runtime perms). Kept
+    // before the early-return so it always runs; already-granted is a no-op.
+    try {
+      final perms = <Permission>[Permission.microphone];
+      if (isVideo) perms.add(Permission.camera);
+      await perms.request();
+    } catch (e) {
+      debugPrint('[Agora] permission request error: $e');
+    }
+
     if (_engine != null) return; // already initialised
 
     final rtcEngine = createAgoraRtcEngine();
@@ -99,8 +113,13 @@ class CallService {
         },
         onUserOffline: (connection, remoteUid, reason) {
           debugPrint('[Agora] Remote user offline: $remoteUid reason: $reason');
-          // Signal call end via overlay; the socket call:end will also arrive
+          // Signal call end via overlay; the socket call:end will also arrive.
           _ref.read(callOverlayProvider.notifier).clearCall();
+          // Remote left → tear down OUR engine too so the mic/camera are freed
+          // (previously only the overlay was cleared, leaking the engine and
+          // keeping the mic/camera busy). Deferred so we don't release the
+          // engine from inside its own event callback.
+          Future(() => leaveAndRelease());
         },
       ),
     );

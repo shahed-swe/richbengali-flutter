@@ -14,7 +14,9 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../services/call_pip_manager.dart';
 import '../../services/call_service.dart';
+import '../../services/callkit_service.dart';
 import '../../services/socket_service.dart';
+import '../../services/voip_push_service.dart';
 import '../../state/call_overlay_provider.dart';
 import '../../state/me_provider.dart';
 import '../../theme/theme.dart';
@@ -346,6 +348,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
 
     await ref.read(callServiceProvider).leaveAndRelease();
     ref.read(callOverlayProvider.notifier).clearCall();
+    await _dismissNativeCallUi();
     _engineInitFuture = null;
     _timerTick?.cancel();
     WakelockPlus.disable().catchError((_) {});
@@ -360,7 +363,21 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
           callerId: overlay.otherUser?.id ?? '',
         );
     ref.read(callOverlayProvider.notifier).clearCall();
+    await _dismissNativeCallUi();
     _engineInitFuture = null;
+  }
+
+  /// Dismiss any native call UI left over from an incoming call: the
+  /// flutter_callkit_incoming notification/UI AND (iOS) the native CXProvider
+  /// call used for VoIP-pushed calls. Without this, ending a call in-app leaves
+  /// the Android ongoing-call notification or the iOS CallKit entry dangling.
+  Future<void> _dismissNativeCallUi() async {
+    try {
+      await ref.read(callkitServiceProvider).endAllCalls();
+    } catch (_) {}
+    try {
+      await ref.read(voipPushServiceProvider).endNativeCallKit();
+    } catch (_) {}
   }
 
   Future<void> _answerCall() async {

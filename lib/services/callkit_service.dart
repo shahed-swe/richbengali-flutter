@@ -524,8 +524,13 @@ class CallkitService {
       // Clear overlay
       _ref.read(callOverlayProvider.notifier).clearCall();
 
-      // Dismiss native call UI
+      // Dismiss native call UI — flutter_callkit_incoming's own UI AND (iOS) the
+      // native CXProvider used for VoIP-pushed calls (endAllCalls() won't clear
+      // that one, so the call would otherwise linger).
       await endAllCalls();
+      try {
+        await _ref.read(voipPushServiceProvider).endNativeCallKit();
+      } catch (_) {}
     } catch (e) {
       debugPrint('[CallKit] _onCallDeclined error: $e');
     }

@@ -122,6 +122,20 @@ class VoipPushService {
     return null;
   }
 
+  /// Dismiss the NATIVE iOS CallKit call. iOS VoIP-pushed calls are shown on
+  /// AppDelegate's own CXProvider (reportNewIncomingCall), which
+  /// flutter_callkit_incoming's endAllCalls() does NOT clear — so without this
+  /// an ended/declined VoIP call dangles in the system call UI and holds the
+  /// audio session. No-op on Android.
+  Future<void> endNativeCallKit() async {
+    if (!Platform.isIOS) return;
+    try {
+      await _channel.invokeMethod('endCallKit');
+    } catch (e) {
+      debugPrint('[VoipPush] endCallKit error: $e');
+    }
+  }
+
   Future<dynamic> _handleMethodCall(MethodCall call) async {
     debugPrint('[VoipPush] Native call: ${call.method} args=${call.arguments}');
     switch (call.method) {

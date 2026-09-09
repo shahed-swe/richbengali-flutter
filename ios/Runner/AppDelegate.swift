@@ -1,5 +1,7 @@
 import AVFoundation
 import CallKit
+import FirebaseCore
+import FirebaseMessaging
 import Flutter
 import PushKit
 import UIKit
@@ -98,6 +100,39 @@ import UIKit
     }
 
     // -------------------------------------------------------------------------
+    // Standard APNs (remote notification) registration — for FCM message push.
+    //
+    // On this iOS-26 stack (custom AppDelegate + PushKit + the implicit-engine
+    // lifecycle) Firebase's automatic method-swizzling does NOT deliver the APNs
+    // device token to FirebaseMessaging, so getAPNSToken()/getToken() fail with
+    // `apns-token-not-set` and the device never registers for FCM. We forward the
+    // token to Messaging ourselves. VoIP (PushKit) is a SEPARATE token, handled
+    // by the PKPushRegistryDelegate below and unaffected by this.
+    // -------------------------------------------------------------------------
+    override func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        print("[AppDelegate] APNs device token received (\(deviceToken.count) bytes): \(hex.prefix(12))…")
+        if FirebaseApp.app() != nil {
+            Messaging.messaging().apnsToken = deviceToken
+            print("[AppDelegate] Forwarded APNs token to FirebaseMessaging")
+        } else {
+            print("[AppDelegate] WARNING: FirebaseApp not configured yet; APNs token not forwarded")
+        }
+        super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+    }
+
+    override func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        print("[AppDelegate] APNs registration FAILED: \(error.localizedDescription)")
+        super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+    }
+
+    // -------------------------------------------------------------------------
     // UIScene lifecycle: called once the implicit Flutter engine is ready. This
     // is the correct place to register plugins and wire MethodChannels — the
     // registrar/messenger is guaranteed valid here (fixes the iOS 26 nil-registrar
@@ -183,6 +218,7 @@ import UIKit
             }
         }
     }
+
 }
 
 // =============================================================================
