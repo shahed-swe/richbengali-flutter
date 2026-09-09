@@ -138,6 +138,16 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
       }
     }
 
+    // Android 14+: without USE_FULL_SCREEN_INTENT an incoming call can only show
+    // as a notification, never the full-screen ringing UI. Ask for it here.
+    if (Platform.isAndroid) {
+      try {
+        await ref.read(callkitServiceProvider).ensureFullScreenIntentPermission();
+      } catch (e) {
+        debugPrint('[App] fullScreenIntent permission error: $e');
+      }
+    }
+
     // Init FCM — requests permission, gets token, sets up foreground handler.
     try {
       await ref.read(pushServiceProvider).init();

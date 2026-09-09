@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_callkit_incoming/entities/android_params.dart';
@@ -258,6 +259,27 @@ class CallkitService {
       await FlutterCallkitIncoming.endAllCalls();
     } catch (e) {
       debugPrint('[CallKit] endAllCalls error: $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Android 14+ (API 34) IGNORES a call notification's full-screen intent unless
+  // the app holds USE_FULL_SCREEN_INTENT — the incoming call then appears only as
+  // a notification in the shade instead of the full-screen ringing UI. The plugin
+  // always sets the full-screen intent, so this permission is the missing piece.
+  // Sends the user to the system settings page for this app when it's not granted.
+  // ---------------------------------------------------------------------------
+  Future<void> ensureFullScreenIntentPermission() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final can = await FlutterCallkitIncoming.canUseFullScreenIntent();
+      debugPrint('[CallKit] canUseFullScreenIntent = $can');
+      if (can == false) {
+        debugPrint('[CallKit] requesting USE_FULL_SCREEN_INTENT…');
+        await FlutterCallkitIncoming.requestFullIntentPermission();
+      }
+    } catch (e) {
+      debugPrint('[CallKit] ensureFullScreenIntentPermission error: $e');
     }
   }
 
@@ -574,15 +596,35 @@ class CallkitService {
     try {
       final calls = await FlutterCallkitIncoming.activeCalls();
       if (calls is! List || calls.isEmpty) return;
-      final call = Map<String, dynamic>.from(calls.first as Map);
-      final extra = call['extra'] is Map
-          ? Map<String, dynamic>.from(call['extra'] as Map)
+
+      // CRITICAL: activeCalls() also contains calls that are merely RINGING
+      // (addCall(..., isAccepted=false) is written when the call is displayed).
+      // Only resume a call the user ACTUALLY accepted — otherwise simply opening
+      // the app while a call is ringing silently answers it, and the caller sees
+      // "connected" although the callee never picked up.
+      Map<String, dynamic>? accepted;
+      for (final c in calls) {
+        if (c is! Map) continue;
+        final m = Map<String, dynamic>.from(c);
+        if (m['isAccepted'] == true) {
+          accepted = m;
+          break;
+        }
+      }
+      if (accepted == null) {
+        debugPrint('[CallKit] recoverColdStartCall: active call(s) present but '
+            'none accepted — not auto-answering');
+        return;
+      }
+
+      final extra = accepted['extra'] is Map
+          ? Map<String, dynamic>.from(accepted['extra'] as Map)
           : const <String, dynamic>{};
-      final callId = (extra['callId'] ?? call['id'] ?? '').toString();
+      final callId = (extra['callId'] ?? accepted['id'] ?? '').toString();
       if (callId.isEmpty) return;
       final callerId = (extra['callerId'] ?? '').toString();
       final callType = (extra['callType'] ?? 'audio').toString();
-      debugPrint('[CallKit] recoverColdStartCall: found active call $callId');
+      debugPrint('[CallKit] recoverColdStartCall: resuming ACCEPTED call $callId');
       await acceptIncomingCall(
           callId: callId, callerId: callerId, callType: callType);
     } catch (e) {
