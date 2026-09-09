@@ -358,7 +358,7 @@ class CallkitService {
         case Event.actionCallDecline:
         case Event.actionCallEnded:
         case Event.actionCallTimeout:
-          await _onCallDeclined(callId);
+          await _onCallDeclined(callId, extra);
 
         case Event.actionCallIncoming:
           debugPrint('[CallKit] actionCallIncoming received for $callId');
@@ -558,21 +558,41 @@ class CallkitService {
   // Handle DECLINE / END / TIMEOUT — mirror RN endCall
   // ---------------------------------------------------------------------------
 
-  Future<void> _onCallDeclined(String callId) async {
-    debugPrint('[CallKit] _onCallDeclined: $callId');
+  Future<void> _onCallDeclined(String callId,
+      [Map<String, dynamic> extra = const <String, dynamic>{}]) async {
+    debugPrint('[CallKit] _onCallDeclined: $callId extra=$extra');
 
     try {
       final socketService = _ref.read(socketServiceProvider);
       final overlay = _ref.read(callOverlayProvider);
 
-      // Emit reject if still incoming; end if already ongoing
-      if (overlay.callState == 'incoming') {
-        socketService.rejectCall(
-          callId: callId,
-          callerId: overlay.otherUser?.id ?? '',
-        );
-      } else if (overlay.activeCall != null) {
-        socketService.endCall(callId: callId);
+      // Recover the caller id. When the call was raised from a PUSH while the app
+      // was CLOSED there is no overlay at all, so the old code sent an empty
+      // callerId — the backend then emitted call:reject to nobody and the CALLER
+      // was left ringing forever. The real ids live in the CallKit `extra` (and,
+      // for an iOS VoIP call, in the natively cached payload).
+      var callerId = overlay.otherUser?.id ?? '';
+      if (callerId.isEmpty) callerId = (extra['callerId'] ?? '').toString();
+      var id = callId.isNotEmpty ? callId : (extra['callId'] ?? '').toString();
+      if (callerId.isEmpty) {
+        try {
+          final pending =
+              await _ref.read(voipPushServiceProvider).getPendingVoipCall();
+          if (pending != null) {
+            if (callerId.isEmpty) callerId = (pending['callerId'] ?? '').toString();
+            if (id.isEmpty) id = (pending['callId'] ?? '').toString();
+          }
+        } catch (_) {}
+      }
+
+      // End if we were already connected, otherwise reject. Always tell the
+      // server even when callerId is still empty — it recovers the caller from
+      // the pending-call record it kept when it rang us.
+      if (overlay.activeCall != null && overlay.callState == 'ongoing') {
+        socketService.endCall(callId: id);
+      } else {
+        debugPrint('[CallKit] reject → callId=$id callerId="$callerId"');
+        socketService.rejectCall(callId: id, callerId: callerId);
       }
 
       // Leave Agora
