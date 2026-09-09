@@ -96,8 +96,21 @@ import UIKit
         voipRegistry?.delegate = self
         voipRegistry?.desiredPushTypes = [.voIP]
 
+        // Explicitly register for standard remote notifications (FCM). On this
+        // iOS-26 stack, firebase_messaging's auto-registration wasn't firing, so
+        // the APNs token never arrived and getToken() failed with
+        // apns-token-not-set. This guarantees the didRegister… callback below
+        // runs; we forward the token to Firebase there. Safe/idempotent.
+        DispatchQueue.main.async {
+            application.registerForRemoteNotifications()
+        }
+
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
+
+    // Cached APNs token so we can (re)forward it to Firebase once FirebaseApp is
+    // configured — the token can arrive before Dart runs Firebase.initializeApp().
+    private var cachedApnsToken: Data?
 
     // -------------------------------------------------------------------------
     // Standard APNs (remote notification) registration — for FCM message push.
@@ -113,22 +126,35 @@ import UIKit
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
-        print("[AppDelegate] APNs device token received (\(deviceToken.count) bytes): \(hex.prefix(12))…")
-        if FirebaseApp.app() != nil {
-            Messaging.messaging().apnsToken = deviceToken
-            print("[AppDelegate] Forwarded APNs token to FirebaseMessaging")
-        } else {
-            print("[AppDelegate] WARNING: FirebaseApp not configured yet; APNs token not forwarded")
-        }
+        NSLog("[AppDelegate] APNs device token received (\(deviceToken.count) bytes)")
+        cachedApnsToken = deviceToken
+        forwardApnsTokenToFirebase()
         super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+    }
+
+    // Forward the cached APNs token to FirebaseMessaging. If FirebaseApp isn't
+    // configured yet (the token can beat Dart's Firebase.initializeApp), retry on
+    // the main queue for up to ~12s until it is — otherwise getToken() would keep
+    // failing with apns-token-not-set even though the token arrived.
+    private func forwardApnsTokenToFirebase(attempt: Int = 0) {
+        guard let token = cachedApnsToken else { return }
+        if FirebaseApp.app() != nil {
+            Messaging.messaging().apnsToken = token
+            NSLog("[AppDelegate] Forwarded APNs token to FirebaseMessaging")
+        } else if attempt < 12 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.forwardApnsTokenToFirebase(attempt: attempt + 1)
+            }
+        } else {
+            NSLog("[AppDelegate] Gave up forwarding APNs token: FirebaseApp never configured")
+        }
     }
 
     override func application(
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        print("[AppDelegate] APNs registration FAILED: \(error.localizedDescription)")
+        NSLog("[AppDelegate] APNs registration FAILED: \(error.localizedDescription)")
         super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
     }
 
