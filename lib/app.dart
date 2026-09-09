@@ -231,8 +231,6 @@ class _RichBengaliAppState extends ConsumerState<RichBengaliApp>
     // session never triggers — so a returning user registered NO push token at
     // all (no notifications, no calls) until they manually logged out and in.
     final auth = ref.watch(authProvider);
-    debugPrint('[App] build: hydrated=${auth.hydrated} '
-        'isLoggedIn=${auth.isLoggedIn} servicesStarted=$_servicesStarted');
     if (auth.isLoggedIn && !_servicesStarted) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _startPushServices());
     }
