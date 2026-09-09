@@ -52,6 +52,14 @@ app.*.map.json
 *.cer
 *.mobileprovision
 *.certSigningRequest
+*.der
+*.p12
+*.keystore
+*.jks
+# Local cert/secret bundles that must never reach this PUBLIC repo
+/certs/
+/certs.zip
+/certificates/
 
 # Firebase Admin SDK service-account key — BACKEND-ONLY secret, NEVER commit
 *firebase-adminsdk*.json
