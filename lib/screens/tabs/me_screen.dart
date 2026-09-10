@@ -36,7 +36,6 @@ class _MeScreenState extends ConsumerState<MeScreen> {
 
   bool _saving = false;
   bool _avatarLoading = false;
-  bool _deleting = false;
   String? _viewedImage;
 
   // Track which user id the controllers were last seeded from.
@@ -130,29 +129,17 @@ class _MeScreenState extends ConsumerState<MeScreen> {
       ),
     );
     if (ok != true) return;
-    if (mounted) setState(() => _deleting = true);
     try {
       await ref.read(usersRepositoryProvider).deleteMyAccount();
-
-      // Tear the session down BEFORE navigating. logout() clears the token, and
-      // the auth listener in app.dart invalidates the user-scoped providers —
-      // without that, this still-mounted screen can rebuild against a deleted
-      // account and render nothing (the "black screen" this button was hidden
-      // for). Navigation is then handled by the router redirect; the explicit
-      // go('/login') is just a belt-and-braces fallback.
       await ref.read(authProvider.notifier).logout();
-      if (!mounted) return;
-      context.go('/login');
+      if (mounted) context.go('/login');
     } catch (e) {
-      debugPrint('[Me] delete account failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text('Could not delete account. Please try again.')),
         );
       }
-    } finally {
-      if (mounted) setState(() => _deleting = false);
     }
   }
 
@@ -690,35 +677,10 @@ class _MeScreenState extends ConsumerState<MeScreen> {
         ),
           ],
         ),
-        // In-app account deletion — REQUIRED by Apple Guideline 5.1.1(v) for any
-        // app that lets users create an account. It was hidden for a while
-        // because deleting left the user on a black screen; the real cause was
-        // the backend's DELETE /users/me failing on FK constraints, which is
-        // fixed (it now removes the child rows in a transaction).
-        Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 24),
-          child: Center(
-            child: TextButton.icon(
-              onPressed: _deleting ? null : _handleDeleteAccount,
-              icon: _deleting
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(AppColors.danger),
-                      ),
-                    )
-                  : const Icon(LucideIcons.trash2,
-                      size: 18, color: AppColors.danger),
-              label: Text(
-                _deleting ? 'Deleting…' : 'Delete account',
-                style: AppTextStyles.textBase.copyWith(color: AppColors.danger),
-              ),
-            ),
-          ),
-        ),
+        // Delete account button temporarily hidden (post-delete black-screen
+        // bug). NOTE: Apple Guideline 5.1.1(v) REQUIRES in-app account deletion,
+        // so this must be restored (with the black screen fixed) before the next
+        // App Store submission or the app can be rejected.
       ],
     );
   }
