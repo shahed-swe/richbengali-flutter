@@ -56,6 +56,22 @@ class MessagesRepository {
     return Message.fromJson(Map<String, dynamic>.from(payload as Map));
   }
 
+  /// POST /messages/attachment — multipart photo message.
+  Future<Message> sendAttachment(String to, String filePath) async {
+    final formData = FormData.fromMap({
+      'to': to,
+      'file': await MultipartFile.fromFile(filePath),
+    });
+    final resp = await _dio.post(
+      '/messages/attachment',
+      data: formData,
+      options: Options(contentType: 'multipart/form-data'),
+    );
+    final data = resp.data;
+    final payload = data is Map ? (data['data'] ?? data) : data;
+    return Message.fromJson(Map<String, dynamic>.from(payload as Map));
+  }
+
   /// DELETE /messages/:messageId
   Future<void> deleteMessage(String messageId) async {
     await _dio.delete('/messages/$messageId');

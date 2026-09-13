@@ -241,6 +241,47 @@ class MessagesNotifier extends Notifier<MessagesState> {
     }
   }
 
+  /// Optimistic photo send: show the picked file in the thread straight away,
+  /// then swap it for the saved message once the upload lands.
+  Future<void> sendImage(String myId, String filePath) async {
+    final optimisticId =
+        'optimistic_${DateTime.now().millisecondsSinceEpoch}';
+    final optimistic = Message(
+      id: optimisticId,
+      senderId: myId,
+      receiverId: otherUserId,
+      content: '',
+      // A local path, not an https URL — the bubble renders it off disk while
+      // the upload is still running.
+      attachmentUrl: filePath,
+      attachmentType: 'image',
+      createdAt: DateTime.now().toIso8601String(),
+    );
+
+    final prev = state;
+    state = prev.copyWith(
+      messages: List<Message>.from(prev.messages)..add(optimistic),
+    );
+
+    try {
+      final saved = await ref
+          .read(messagesRepositoryProvider)
+          .sendAttachment(otherUserId, filePath);
+      final s = state;
+      final updated =
+          s.messages.where((m) => m.id != optimisticId).toList();
+      if (!updated.any((m) => m.id == saved.id)) updated.add(saved);
+      updated.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      state = s.copyWith(messages: updated);
+    } catch (e) {
+      final s = state;
+      state = s.copyWith(
+        messages: s.messages.where((m) => m.id != optimisticId).toList(),
+      );
+      rethrow;
+    }
+  }
+
   /// Mark all messages as seen — called when the peer opens/views the chat
   /// (server `chat:seen`). Only own-message bubbles display the read tick, so
   /// marking the whole list is harmless and keeps it simple.

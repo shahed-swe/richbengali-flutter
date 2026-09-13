@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../models/message.dart';
@@ -20,6 +22,8 @@ import '../../data/messages_repository.dart';
 import '../../data/users_repository.dart';
 import '../../router/app_router.dart';
 import '../../services/socket_service.dart';
+import '../../widgets/chat/chat_image.dart';
+import '../../widgets/chat/linkified_text.dart';
 import '../../widgets/safety/report_block_menu.dart';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +42,7 @@ class ChatDetailScreen extends ConsumerStatefulWidget {
 class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final TextEditingController _textController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
   final ScrollController _scrollController = ScrollController();
   /// Whether a send is in flight. A ValueNotifier rather than plain state so
   /// toggling it repaints only the send button, not the whole screen.
@@ -287,6 +292,105 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           const SnackBar(content: Text('Failed to send message. Please try again.')),
         );
         _textController.text = text;
+      }
+    } finally {
+      if (mounted) _isSending.value = false;
+    }
+  }
+
+  /// Server-side rejections here are all actionable by the user (no balance,
+  /// blocked, photo too large), so surface the API's own wording.
+  String _photoError(Object e, String fallback) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map) {
+        final m = data['message'] ?? data['error'];
+        if (m != null && m.toString().isNotEmpty) return m.toString();
+      }
+    }
+    return fallback;
+  }
+
+  Future<void> _pickAndSendImage() async {
+    _dismissKeyboard();
+    if (_isSending.value) return;
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE2E8F0),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(LucideIcons.camera, color: Color(0xFFF43F5E)),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.image, color: Color(0xFFF43F5E)),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+
+    XFile? picked;
+    try {
+      // Downscaled before upload so a 12MP camera shot does not hit the
+      // server's 10 MB cap on a slow connection.
+      picked = await _picker.pickImage(
+        source: source,
+        imageQuality: 80,
+        maxWidth: 1600,
+        maxHeight: 1600,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open the camera or gallery. '
+                'Check the app permissions in Settings.'),
+          ),
+        );
+      }
+      return;
+    }
+    if (picked == null) return;
+
+    final myId = ref.read(authProvider).user?.id ?? '';
+    _isSending.value = true;
+    try {
+      await ref
+          .read(messagesProvider(_otherUserId).notifier)
+          .sendImage(myId, picked.path);
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _photoError(e, 'Failed to send photo. Please try again.'),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) _isSending.value = false;
@@ -801,8 +905,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           ),
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 4),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: msg.isImage
+                ? const EdgeInsets.all(4)
+                : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.72,
             ),
@@ -821,39 +926,58 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  msg.content,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: isOwn ? Colors.white : const Color(0xFF0F172A),
-                    height: 1.4,
+                if (msg.isImage)
+                  ChatImage(message: msg)
+                else
+                  LinkifiedText(
+                    text: msg.content,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: isOwn ? Colors.white : const Color(0xFF0F172A),
+                      height: 1.4,
+                    ),
+                    linkStyle: TextStyle(
+                      fontSize: 15,
+                      height: 1.4,
+                      decoration: TextDecoration.underline,
+                      decorationColor:
+                          isOwn ? Colors.white : const Color(0xFF2563EB),
+                      color: isOwn ? Colors.white : const Color(0xFF2563EB),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
                 const SizedBox(height: 3),
                 // Timestamp (+ read-receipt tick for own messages).
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _formatMessageTime(msg.createdAt),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: isOwn
-                            ? Colors.white.withValues(alpha: 0.75)
-                            : const Color(0xFF94A3B8),
+                // Photo bubbles pad this back in themselves, since the bubble
+                // padding drops to 4 so the image can sit flush.
+                Padding(
+                  padding: msg.isImage
+                      ? const EdgeInsets.only(right: 6, bottom: 2)
+                      : EdgeInsets.zero,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatMessageTime(msg.createdAt),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: isOwn
+                              ? Colors.white.withValues(alpha: 0.75)
+                              : const Color(0xFF94A3B8),
+                        ),
                       ),
-                    ),
-                    if (isOwn) ...[
-                      const SizedBox(width: 3),
-                      Icon(
-                        msg.seen ? Icons.done_all : Icons.done,
-                        size: 13,
-                        color: msg.seen
-                            ? const Color(0xFF93C5FD)
-                            : Colors.white.withValues(alpha: 0.75),
-                      ),
+                      if (isOwn) ...[
+                        const SizedBox(width: 3),
+                        Icon(
+                          msg.seen ? Icons.done_all : Icons.done,
+                          size: 13,
+                          color: msg.seen
+                              ? const Color(0xFF93C5FD)
+                              : Colors.white.withValues(alpha: 0.75),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -919,6 +1043,25 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          // Attach a photo.
+          ValueListenableBuilder<bool>(
+            valueListenable: _isSending,
+            builder: (context, isSending, _) => GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: isSending ? null : _pickAndSendImage,
+              child: SizedBox(
+                width: 44,
+                height: 60,
+                child: Icon(
+                  LucideIcons.imagePlus,
+                  size: 23,
+                  color: isSending
+                      ? const Color(0xFFCBD5E1)
+                      : const Color(0xFFF43F5E),
+                ),
+              ),
+            ),
+          ),
           // Text input — slate pill
           Expanded(
             child: ConstrainedBox(

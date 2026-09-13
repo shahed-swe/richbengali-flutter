@@ -42,13 +42,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>RichBengali uses the camera for video calls and profile photo updates.</string>
+	<string>RichBengali uses the camera for video calls, profile photos, and photos you send in chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>RichBengali uses the microphone for audio and video calls.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>RichBengali would like to save photos to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>RichBengali needs access to your photo library to let you pick a profile photo.</string>
+	<string>RichBengali needs access to your photo library so you can pick a profile photo and send photos in chat.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
