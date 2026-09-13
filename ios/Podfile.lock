@@ -5,6 +5,8 @@ PODS:
     - Flutter
   - AgoraIrisRTC_iOS2 (4.6.2-build.1)
   - AgoraVideo_Special_iOS (4.6.2.70)
+  - audio_session (0.0.1):
+    - Flutter
   - CryptoSwift (1.10.0)
   - Firebase/Auth (11.15.0):
     - Firebase/CoreOnly
@@ -101,6 +103,9 @@ PODS:
     - Flutter
   - iris_method_channel (0.0.1):
     - Flutter
+  - just_audio (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - nanopb (3.30910.0):
     - nanopb/decode (= 3.30910.0)
     - nanopb/encode (= 3.30910.0)
@@ -112,6 +117,8 @@ PODS:
     - Flutter
   - PromisesObjC (2.4.1)
   - RecaptchaInterop (101.0.0)
+  - record_ios (2.0.0):
+    - Flutter
   - screen_protector (1.5.1):
     - Flutter
     - ScreenProtectorKit (= 1.5.1)
@@ -134,6 +141,7 @@ PODS:
 
 DEPENDENCIES:
   - agora_rtc_engine (from `.symlinks/plugins/agora_rtc_engine/ios`)
+  - audio_session (from `.symlinks/plugins/audio_session/ios`)
   - firebase_auth (from `.symlinks/plugins/firebase_auth/ios`)
   - firebase_core (from `.symlinks/plugins/firebase_core/ios`)
   - firebase_messaging (from `.symlinks/plugins/firebase_messaging/ios`)
@@ -144,8 +152,10 @@ DEPENDENCIES:
   - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - iris_method_channel (from `.symlinks/plugins/iris_method_channel/ios`)
+  - just_audio (from `.symlinks/plugins/just_audio/darwin`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - record_ios (from `.symlinks/plugins/record_ios/ios`)
   - screen_protector (from `.symlinks/plugins/screen_protector/ios`)
   - sentry_flutter (from `.symlinks/plugins/sentry_flutter/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
@@ -179,6 +189,8 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   agora_rtc_engine:
     :path: ".symlinks/plugins/agora_rtc_engine/ios"
+  audio_session:
+    :path: ".symlinks/plugins/audio_session/ios"
   firebase_auth:
     :path: ".symlinks/plugins/firebase_auth/ios"
   firebase_core:
@@ -199,10 +211,14 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/image_picker_ios/ios"
   iris_method_channel:
     :path: ".symlinks/plugins/iris_method_channel/ios"
+  just_audio:
+    :path: ".symlinks/plugins/just_audio/darwin"
   package_info_plus:
     :path: ".symlinks/plugins/package_info_plus/ios"
   permission_handler_apple:
     :path: ".symlinks/plugins/permission_handler_apple/ios"
+  record_ios:
+    :path: ".symlinks/plugins/record_ios/ios"
   screen_protector:
     :path: ".symlinks/plugins/screen_protector/ios"
   sentry_flutter:
@@ -220,6 +236,7 @@ SPEC CHECKSUMS:
   agora_rtc_engine: eb07ef3cf67c06a20fbdfc7f67b09c5ffb4be324
   AgoraIrisRTC_iOS2: 13996c3c78134da357634f6a1a12741436658886
   AgoraVideo_Special_iOS: 9bd42c487f936f4d335d5630e2632f0b08e214f5
+  audio_session: 9bb7f6c970f21241b19f5a3658097ae459681ba0
   CryptoSwift: e2e7776512f250e66205955da748e7a4e4abffe0
   Firebase: d99ac19b909cd2c548339c2241ecd0d1599ab02e
   firebase_auth: 50af8366c87bb88c80ebeae62eb60189c7246b9b
@@ -243,11 +260,13 @@ SPEC CHECKSUMS:
   GTMSessionFetcher: fc75fc972958dceedee61cb662ae1da7a83a91cf
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
   iris_method_channel: 7d661cf3259b3009ae423508470dbeb9374446ee
+  just_audio: 4e391f57b79cad2b0674030a00453ca5ce817eed
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   permission_handler_apple: 92d754bbaa7361d436db2d6c3c1c2a0fdcec462e
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
+  record_ios: 390a30c7caaf8b5d0fb1cb1d2fd5064b48b4520c
   screen_protector: 18c6aca2dc5d2a832f6787a5318f97f03e9d3150
   ScreenProtectorKit: 6ceb3e0808341a9bc15d175bff40dfdd4b32da71
   Sentry: da60d980b197a46db0b35ea12cb8f39af48d8854

@@ -44,7 +44,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>RichBengali uses the camera for video calls, profile photos, and photos you send in chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>RichBengali uses the microphone for audio and video calls.</string>
+	<string>RichBengali uses the microphone for audio and video calls, and to record voice messages in chat.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>RichBengali would like to save photos to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

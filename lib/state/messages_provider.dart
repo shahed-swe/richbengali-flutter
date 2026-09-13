@@ -241,9 +241,18 @@ class MessagesNotifier extends Notifier<MessagesState> {
     }
   }
 
-  /// Optimistic photo send: show the picked file in the thread straight away,
-  /// then swap it for the saved message once the upload lands.
-  Future<void> sendImage(String myId, String filePath) async {
+  /// Optimistic photo send.
+  Future<void> sendImage(String myId, String filePath) =>
+      _sendAttachment(myId, filePath, 'image');
+
+  /// Optimistic voice-note send.
+  Future<void> sendAudio(String myId, String filePath) =>
+      _sendAttachment(myId, filePath, 'audio');
+
+  /// Show the picked file in the thread straight away, then swap it for the
+  /// saved message once the upload lands.
+  Future<void> _sendAttachment(
+      String myId, String filePath, String type) async {
     final optimisticId =
         'optimistic_${DateTime.now().millisecondsSinceEpoch}';
     final optimistic = Message(
@@ -254,7 +263,7 @@ class MessagesNotifier extends Notifier<MessagesState> {
       // A local path, not an https URL — the bubble renders it off disk while
       // the upload is still running.
       attachmentUrl: filePath,
-      attachmentType: 'image',
+      attachmentType: type,
       createdAt: DateTime.now().toIso8601String(),
     );
 

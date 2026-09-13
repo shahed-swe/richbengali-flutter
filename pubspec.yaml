@@ -63,6 +63,9 @@ dependencies:
   # (iOS flutter_callkit_incoming force-unwraps UUID(uuidString:) and crashes).
   uuid: ^4.5.3
   firebase_auth: ^5.7.0
+  record: ^7.1.1
+  just_audio: ^0.10.6
+  path_provider: ^2.1.6
   # flutter_voip_push_notification not compatible with null-safe Dart SDK 3.x;
   # VoIP push is handled via a custom platform channel in voip_push_service.dart.
   # TODO (Phase 8/Mac): add a null-safe VoIP push package or write Swift/ObjC plugin.

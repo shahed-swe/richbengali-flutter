@@ -38,6 +38,12 @@ class Message {
       attachmentUrl != null &&
       attachmentUrl!.isNotEmpty;
 
+  /// True when this message should render as a voice note.
+  bool get isAudio =>
+      attachmentType == 'audio' &&
+      attachmentUrl != null &&
+      attachmentUrl!.isNotEmpty;
+
   /// While an upload is in flight the attachment points at a file on disk
   /// rather than at S3.
   bool get isLocalAttachment =>

@@ -14,4 +14,5 @@ export 'conversation_row.dart';
 export 'plan_card.dart';
 export 'payout_modal.dart';
 export 'chat/chat_image.dart';
+export 'chat/chat_voice_note.dart';
 export 'chat/linkified_text.dart';

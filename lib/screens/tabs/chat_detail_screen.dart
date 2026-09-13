@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -7,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../models/message.dart';
@@ -23,6 +26,7 @@ import '../../data/users_repository.dart';
 import '../../router/app_router.dart';
 import '../../services/socket_service.dart';
 import '../../widgets/chat/chat_image.dart';
+import '../../widgets/chat/chat_voice_note.dart';
 import '../../widgets/chat/linkified_text.dart';
 import '../../widgets/safety/report_block_menu.dart';
 
@@ -50,6 +54,17 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   /// room, expands again when the keyboard goes. A ValueNotifier so this
   /// repaints the toolbar only, not the message list.
   final ValueNotifier<bool> _actionsCollapsed = ValueNotifier<bool>(false);
+
+  // ---- voice notes ----
+  final AudioRecorder _recorder = AudioRecorder();
+  final ValueNotifier<bool> _isRecording = ValueNotifier<bool>(false);
+  final ValueNotifier<int> _recordSeconds = ValueNotifier<int>(0);
+  Timer? _recordTicker;
+  String? _recordPath;
+
+  /// Long enough for a real message, short enough to stay well inside the
+  /// server's 10 MB cap at the bitrate below.
+  static const Duration _maxRecording = Duration(minutes: 5);
   final ScrollController _scrollController = ScrollController();
   /// Whether a send is in flight. A ValueNotifier rather than plain state so
   /// toggling it repaints only the send button, not the whole screen.
@@ -161,6 +176,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _inputFocus.removeListener(_onInputFocusChanged);
     _inputFocus.dispose();
     _actionsCollapsed.dispose();
+    _recordTicker?.cancel();
+    _recorder.dispose();
+    _isRecording.dispose();
+    _recordSeconds.dispose();
     _isSending.dispose();
     _scrollController.dispose();
     _chatMessageSub?.cancel();
@@ -366,6 +385,125 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           SnackBar(
             content: Text(
               _photoError(e, 'Failed to send photo. Please try again.'),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) _isSending.value = false;
+    }
+  }
+
+  Future<void> _startRecording() async {
+    _dismissKeyboard();
+    if (_isRecording.value || _isSending.value) return;
+
+    // record's own check prompts if needed; permission_handler is not involved
+    // so the two cannot disagree about the current state.
+    if (!await _recorder.hasPermission()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Microphone access is needed to record a voice '
+                'message. Enable it in Settings.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    final dir = await getTemporaryDirectory();
+    final path =
+        '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+    try {
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          // Mono at a speech-friendly bitrate: clear enough for voice and
+          // roughly half a megabyte a minute.
+          bitRate: 64000,
+          sampleRate: 44100,
+          numChannels: 1,
+        ),
+        path: path,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Couldn't start recording.")),
+        );
+      }
+      return;
+    }
+
+    _recordPath = path;
+    _recordSeconds.value = 0;
+    _isRecording.value = true;
+    _recordTicker?.cancel();
+    _recordTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      _recordSeconds.value++;
+      if (_recordSeconds.value >= _maxRecording.inSeconds) {
+        _stopAndSendRecording();
+      }
+    });
+  }
+
+  /// Stops the recorder and returns the finished file, leaving the UI idle.
+  Future<String?> _finishRecording() async {
+    _recordTicker?.cancel();
+    _recordTicker = null;
+    String? path;
+    try {
+      path = await _recorder.stop();
+    } catch (_) {
+      path = null;
+    }
+    _isRecording.value = false;
+    return path ?? _recordPath;
+  }
+
+  Future<void> _cancelRecording() async {
+    if (!_isRecording.value) return;
+    final path = await _finishRecording();
+    _recordPath = null;
+    if (path != null) {
+      try {
+        final f = File(path);
+        if (f.existsSync()) await f.delete();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _stopAndSendRecording() async {
+    if (!_isRecording.value) return;
+    final seconds = _recordSeconds.value;
+    final path = await _finishRecording();
+    _recordPath = null;
+    if (path == null) return;
+
+    // A stray tap produces a file with essentially nothing in it.
+    if (seconds < 1) {
+      try {
+        final f = File(path);
+        if (f.existsSync()) await f.delete();
+      } catch (_) {}
+      return;
+    }
+
+    final myId = ref.read(authProvider).user?.id ?? '';
+    _isSending.value = true;
+    try {
+      await ref
+          .read(messagesProvider(_otherUserId).notifier)
+          .sendAudio(myId, path);
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _photoError(e, 'Failed to send voice message. Please try again.'),
             ),
           ),
         );
@@ -906,6 +1044,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               children: [
                 if (msg.isImage)
                   ChatImage(message: msg)
+                else if (msg.isAudio)
+                  ChatVoiceNote(message: msg, isOwn: isOwn)
                 else
                   LinkifiedText(
                     text: msg.content,
@@ -1096,7 +1236,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
       // No SafeArea here: the screen body already sits in one, and the column
       // adds an explicit viewPadding.bottom spacer below this toolbar.
-      child: Row(
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _isRecording,
+        builder: (context, recording, normalRow) =>
+            recording ? _buildRecordingBar() : normalRow!,
+        child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           // Camera + gallery, collapsing to a chevron while typing.
@@ -1138,6 +1282,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                                     ? null
                                     : () => _pickAndSendImage(
                                         ImageSource.gallery),
+                              ),
+                              _composerIcon(
+                                LucideIcons.mic,
+                                color: tint,
+                                onTap: isSending ? null : _startRecording,
                               ),
                             ],
                           ),
@@ -1213,6 +1362,66 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 },
               );
             },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Replaces the composer while a voice note is being recorded.
+  Widget _buildRecordingBar() {
+    return SizedBox(
+      height: 44,
+      child: Row(
+        children: [
+          _composerIcon(
+            LucideIcons.trash2,
+            width: 44,
+            color: const Color(0xFF94A3B8),
+            onTap: _cancelRecording,
+          ),
+          Expanded(
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF1F2),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                children: [
+                  // A steady pulse so it is obvious the mic is live.
+                  const _RecordingDot(),
+                  const SizedBox(width: 10),
+                  ValueListenableBuilder<int>(
+                    valueListenable: _recordSeconds,
+                    builder: (context, secs, _) => Text(
+                      '${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Recording…',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _composerIcon(
+            Icons.send_rounded,
+            width: 44,
+            color: const Color(0xFFF43F5E),
+            onTap: _stopAndSendRecording,
           ),
         ],
       ),
@@ -1310,3 +1519,40 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
 final _otherUserProvider = FutureProvider.family<User, String>((ref, id) async {
   return ref.read(usersRepositoryProvider).getUser(id);
 });
+
+/// The pulsing red dot shown while a voice note is recording.
+class _RecordingDot extends StatefulWidget {
+  const _RecordingDot();
+
+  @override
+  State<_RecordingDot> createState() => _RecordingDotState();
+}
+
+class _RecordingDotState extends State<_RecordingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 1, end: 0.25).animate(_c),
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Color(0xFFEF4444),
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+}

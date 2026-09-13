@@ -56,11 +56,40 @@ class MessagesRepository {
     return Message.fromJson(Map<String, dynamic>.from(payload as Map));
   }
 
-  /// POST /messages/attachment — multipart photo message.
+  /// Dio's MultipartFile does NOT infer a content type from the filename — it
+  /// sends application/octet-stream — and the server accepts only real image
+  /// and audio types, so the type has to be spelled out here.
+  static DioMediaType _mediaTypeFor(String path) {
+    const byExtension = <String, List<String>>{
+      'jpg': ['image', 'jpeg'],
+      'jpeg': ['image', 'jpeg'],
+      'png': ['image', 'png'],
+      'webp': ['image', 'webp'],
+      'gif': ['image', 'gif'],
+      'heic': ['image', 'heic'],
+      'heif': ['image', 'heif'],
+      'm4a': ['audio', 'mp4'],
+      'mp4': ['audio', 'mp4'],
+      'aac': ['audio', 'aac'],
+      'mp3': ['audio', 'mpeg'],
+      'wav': ['audio', 'wav'],
+      'ogg': ['audio', 'ogg'],
+      'opus': ['audio', 'ogg'],
+      '3gp': ['audio', '3gpp'],
+    };
+    final ext = path.split('.').last.toLowerCase();
+    final parts = byExtension[ext] ?? const ['application', 'octet-stream'];
+    return DioMediaType(parts[0], parts[1]);
+  }
+
+  /// POST /messages/attachment — multipart photo or voice message.
   Future<Message> sendAttachment(String to, String filePath) async {
     final formData = FormData.fromMap({
       'to': to,
-      'file': await MultipartFile.fromFile(filePath),
+      'file': await MultipartFile.fromFile(
+        filePath,
+        contentType: _mediaTypeFor(filePath),
+      ),
     });
     final resp = await _dio.post(
       '/messages/attachment',
