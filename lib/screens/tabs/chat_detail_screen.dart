@@ -43,6 +43,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final TextEditingController _textController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
+  final FocusNode _inputFocus = FocusNode();
+
+  /// Whether the composer's camera/gallery buttons are tucked away behind the
+  /// chevron, Messenger-style. Collapses while typing so the field gets the
+  /// room, expands again when the keyboard goes. A ValueNotifier so this
+  /// repaints the toolbar only, not the message list.
+  final ValueNotifier<bool> _actionsCollapsed = ValueNotifier<bool>(false);
   final ScrollController _scrollController = ScrollController();
   /// Whether a send is in flight. A ValueNotifier rather than plain state so
   /// toggling it repaints only the send button, not the whole screen.
@@ -78,9 +85,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   // prepending older history pages must NOT yank the user back down.
   String? _lastBottomMessageId;
 
+  void _onInputFocusChanged() {
+    _actionsCollapsed.value = _inputFocus.hasFocus;
+  }
+
   @override
   void initState() {
     super.initState();
+    _inputFocus.addListener(_onInputFocusChanged);
     WidgetsBinding.instance.addObserver(this);
     // Scroll-up pagination: load the previous history page when nearing the top.
     _scrollController.addListener(_maybeLoadOlder);
@@ -146,6 +158,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     WidgetsBinding.instance.removeObserver(this);
     _router?.routerDelegate.removeListener(_onRouterChanged);
     _textController.dispose();
+    _inputFocus.removeListener(_onInputFocusChanged);
+    _inputFocus.dispose();
+    _actionsCollapsed.dispose();
     _isSending.dispose();
     _scrollController.dispose();
     _chatMessageSub?.cancel();
@@ -311,46 +326,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     return fallback;
   }
 
-  Future<void> _pickAndSendImage() async {
+  Future<void> _pickAndSendImage(ImageSource source) async {
     _dismissKeyboard();
     if (_isSending.value) return;
-
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2E8F0),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(LucideIcons.camera, color: Color(0xFFF43F5E)),
-              title: const Text('Take a photo'),
-              onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(LucideIcons.image, color: Color(0xFFF43F5E)),
-              title: const Text('Choose from gallery'),
-              onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (source == null) return;
 
     XFile? picked;
     try {
@@ -866,7 +844,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   Widget _buildBubble(Message msg, String myId) {
     // Call-event system message (e.g. "📞 Call ended · 17m 13s") — centered.
     if (msg.content.startsWith('📞')) {
-      return _buildCallEventRow(msg);
+      return _buildCallEventRow(msg, myId);
     }
 
     final isOwn = msg.senderId == myId;
@@ -988,36 +966,86 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   }
 
   /// Centered "call ended" system row shown inline in the chat thread.
-  Widget _buildCallEventRow(Message msg) {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.call, size: 13, color: Color(0xFF64748B)),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                msg.content.replaceFirst('📞', '').trim(),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF64748B),
-                  fontWeight: FontWeight.w500,
+  Widget _buildCallEventRow(Message msg, String myId) {
+    // Messenger-style call card: a circular icon with the outcome and, under
+    // it, how long it ran. Aligned to whoever placed the call, and tappable to
+    // ring them back. Replaces a centred grey pill that read as clutter when a
+    // thread had several calls in a row.
+    final isOwn = msg.senderId == myId;
+
+    // Content looks like "📞 Call ended - 17m 13s".
+    final raw = msg.content.replaceFirst('📞', '').trim();
+    final parts = raw.split(RegExp(r'\s[-·]\s'));
+    final title = parts.first.trim().isEmpty ? 'Call' : parts.first.trim();
+    final duration = parts.length > 1 ? parts.sublist(1).join(' · ').trim() : '';
+
+    // A call that ran no time at all never connected.
+    final unanswered = duration.isEmpty || RegExp(r'^0\s*s$').hasMatch(duration);
+    final accent =
+        unanswered ? const Color(0xFFEF4444) : const Color(0xFF64748B);
+
+    final subtitle = [
+      if (duration.isNotEmpty && !unanswered) duration,
+      _formatMessageTime(msg.createdAt),
+    ].join(' · ');
+
+    return Align(
+      alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        onTap: () => _initiateCall('audio'),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.72,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: accent,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  unanswered ? Icons.phone_missed : Icons.call,
+                  size: 17,
+                  color: Colors.white,
                 ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              _formatMessageTime(msg.createdAt),
-              style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
-            ),
-          ],
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      unanswered ? 'Missed call' : title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1033,74 +1061,126 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     return '$hour:$minute $period';
   }
 
+  /// One borderless icon button in the composer row.
+  Widget _composerIcon(
+    IconData icon, {
+    required VoidCallback? onTap,
+    required Color color,
+    double width = 40,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: width,
+        height: 44,
+        child: Icon(icon, size: 24, color: color),
+      ),
+    );
+  }
+
   Widget _buildInputToolbar(String myId) {
+    // Messenger-style composer: a fully rounded field with borderless icons
+    // either side. While typing, the camera/gallery buttons slide away behind a
+    // chevron so the field gets the width, and slide back when the keyboard
+    // goes. They used to be square-cornered blocks fused onto the field, which
+    // read as one heavy slab.
+    const rose = Color(0xFFF43F5E);
+    const muted = Color(0xFFCBD5E1);
+
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: Color(0xFFF1F5F9))),
       ),
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+      // No SafeArea here: the screen body already sits in one, and the column
+      // adds an explicit viewPadding.bottom spacer below this toolbar.
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Attach a photo.
+          // Camera + gallery, collapsing to a chevron while typing.
           ValueListenableBuilder<bool>(
-            valueListenable: _isSending,
-            builder: (context, isSending, _) => GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: isSending ? null : _pickAndSendImage,
-              child: SizedBox(
-                width: 44,
-                height: 60,
-                child: Icon(
-                  LucideIcons.imagePlus,
-                  size: 23,
-                  color: isSending
-                      ? const Color(0xFFCBD5E1)
-                      : const Color(0xFFF43F5E),
-                ),
-              ),
-            ),
+            valueListenable: _actionsCollapsed,
+            builder: (context, collapsed, _) {
+              return ValueListenableBuilder<bool>(
+                valueListenable: _isSending,
+                builder: (context, isSending, _) {
+                  final tint = isSending ? muted : rose;
+                  return AnimatedSize(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    alignment: Alignment.centerLeft,
+                    child: collapsed
+                        ? _composerIcon(
+                            LucideIcons.chevronRight,
+                            width: 30,
+                            color: tint,
+                            // Bring the buttons back without dropping the
+                            // keyboard, the way Messenger's chevron does.
+                            onTap: () => _actionsCollapsed.value = false,
+                          )
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _composerIcon(
+                                LucideIcons.camera,
+                                color: tint,
+                                onTap: isSending
+                                    ? null
+                                    : () => _pickAndSendImage(
+                                        ImageSource.camera),
+                              ),
+                              _composerIcon(
+                                LucideIcons.image,
+                                color: tint,
+                                onTap: isSending
+                                    ? null
+                                    : () => _pickAndSendImage(
+                                        ImageSource.gallery),
+                              ),
+                            ],
+                          ),
+                  );
+                },
+              );
+            },
           ),
-          // Text input — slate pill
+
+          // Text input — fully rounded pill.
           Expanded(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 60, maxHeight: 120),
+              constraints: const BoxConstraints(minHeight: 44, maxHeight: 120),
               child: TextField(
                 controller: _textController,
+                focusNode: _inputFocus,
                 maxLines: null,
                 maxLength: 1200,
+                textCapitalization: TextCapitalization.sentences,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
                 style: const TextStyle(
                   fontSize: 16,
                   color: Color(0xFF0F172A),
                 ),
                 decoration: const InputDecoration(
                   hintText: 'Type a message...',
-                  hintStyle:
-                      TextStyle(color: Color(0xFF94A3B8), fontSize: 16),
+                  hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 16),
                   filled: true,
                   fillColor: Color(0xFFF1F5F9),
-                  contentPadding: EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
+                  isDense: true,
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(22),
-                      bottomLeft: Radius.circular(22),
-                    ),
+                    borderRadius: BorderRadius.all(Radius.circular(24)),
                     borderSide: BorderSide.none,
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(22),
-                      bottomLeft: Radius.circular(22),
-                    ),
+                    borderRadius: BorderRadius.all(Radius.circular(24)),
                     borderSide: BorderSide.none,
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(22),
-                      bottomLeft: Radius.circular(22),
-                    ),
+                    borderRadius: BorderRadius.all(Radius.circular(24)),
                     borderSide: BorderSide.none,
                   ),
                   counterText: '',
@@ -1108,7 +1188,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               ),
             ),
           ),
-          // Send button — gradient.
+
+          // Send — a bare icon, no box behind it.
           //
           // Rebuilt via ValueListenableBuilder on the text controller and the
           // sending flag. Previously a `_textController` listener called
@@ -1122,46 +1203,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               return ValueListenableBuilder<bool>(
                 valueListenable: _isSending,
                 builder: (context, isSending, _) {
-                  return GestureDetector(
-                    onTap: hasText && !isSending ? _sendMessage : null,
-                    child: Container(
-                      width: 54,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        gradient: hasText
-                            ? const LinearGradient(
-                                colors: [Color(0xFFF43F5E), Color(0xFFFB7185)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              )
-                            : const LinearGradient(
-                                colors: [Color(0xFFE2E8F0), Color(0xFFCBD5E1)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                        borderRadius: const BorderRadius.only(
-                          topRight: Radius.circular(22),
-                          bottomRight: Radius.circular(22),
-                        ),
-                        boxShadow: hasText
-                            ? [
-                                BoxShadow(
-                                  color: const Color(0xFFF43F5E)
-                                      .withValues(alpha: 0.3),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ]
-                            : null,
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        LucideIcons.send,
-                        size: 20,
-                        color:
-                            hasText ? Colors.white : const Color(0xFF94A3B8),
-                      ),
-                    ),
+                  final active = hasText && !isSending;
+                  return _composerIcon(
+                    Icons.send_rounded,
+                    width: 44,
+                    color: active ? rose : muted,
+                    onTap: active ? _sendMessage : null,
                   );
                 },
               );
