@@ -56,9 +56,10 @@ class MessagesRepository {
     return Message.fromJson(Map<String, dynamic>.from(payload as Map));
   }
 
-  /// Dio's MultipartFile does NOT infer a content type from the filename — it
-  /// sends application/octet-stream — and the server accepts only real image
-  /// and audio types, so the type has to be spelled out here.
+  /// The server accepts only real image and audio types, so the part must
+  /// carry one. Dio does infer it from the filename, but its own docs call
+  /// that defaulting subject to change, and a wrong guess here is a failed
+  /// send the user has no way to work around — so pin it explicitly.
   static DioMediaType _mediaTypeFor(String path) {
     const byExtension = <String, List<String>>{
       'jpg': ['image', 'jpeg'],
