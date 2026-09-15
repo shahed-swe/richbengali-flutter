@@ -64,6 +64,14 @@ class AuthNotifier extends Notifier<AuthState> {
     state = AuthState(user: user, token: token, hydrated: true);
   }
 
+  /// A renewed token from /auth/refresh. Keeps the signed-in user as they are
+  /// and swaps only the token — the socket watches the token and reconnects on
+  /// the new one, so the live connection follows the refreshed session.
+  Future<void> applyRefreshedToken(String token) async {
+    await AppStorage.saveToken(token);
+    state = AuthState(user: state.user, token: token, hydrated: true);
+  }
+
   Future<void> logout() async {
     await AppStorage.clearAuth();
     state = const AuthState(hydrated: true);

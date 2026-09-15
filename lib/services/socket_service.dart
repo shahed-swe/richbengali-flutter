@@ -95,7 +95,14 @@ class SocketService {
           .setAuth({'token': token, 'userId': userId, 'deviceId': DeviceId.value})
           .enableReconnection()
           .setReconnectionDelay(1000)
-          .setReconnectionAttempts(10)
+          // Never stop trying. This used to give up after 10 attempts, which at
+          // a 1s delay is ten seconds — so a phone that simply sat idle with no
+          // network burned through every attempt and then stayed disconnected
+          // for good. The app still looked signed in, but calls and messages
+          // never arrived again until it was force-quit.
+          .setReconnectionAttempts(double.infinity)
+          .setReconnectionDelayMax(20000)
+          .setRandomizationFactor(0.5)
           .setTimeout(60000)
           .build(),
     );
@@ -574,7 +581,25 @@ class SocketService {
   // a backgrounded/just-killed device (whose socket may linger ~85s) must still
   // receive the push so the call rings. Emitting on lifecycle change keeps this
   // accurate instead of depending on the slow socket ping timeout.
-  void notifyForeground() => emit('app:foreground');
+  /// Nudge the connection awake when the app returns to the foreground.
+  ///
+  /// The OS tears the socket down while the app is suspended, and socket.io's
+  /// own retry can be sitting deep in its backoff by the time the user comes
+  /// back. Without this the app stays signed in with a dead socket: no
+  /// incoming calls, no live messages, until it is force-quit.
+  void ensureConnected() {
+    final s = _socket;
+    if (s == null) return;
+    if (!s.connected) {
+      debugPrint('[Socket] resume → socket is down, reconnecting');
+      s.connect();
+    }
+  }
+
+  void notifyForeground() {
+    ensureConnected();
+    emit('app:foreground');
+  }
   void notifyBackground() => emit('app:background');
 
   void cancelCall({required String callId, required String receiverId}) =>
