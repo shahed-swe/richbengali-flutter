@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/call_id.dart';
 import '../core/json_parse.dart';
 
 /// Storage key — mirrors Zustand persist name 'call-overlay-storage'
@@ -222,8 +223,7 @@ class CallOverlayNotifier extends Notifier<CallOverlayState> {
   /// Convenience: start an outgoing call from the chat screen.
   /// Socket emit (call:request) is done in the screen; this only updates state.
   void startOutgoingCall(CallOverlayUser otherUser, String callType) {
-    final sessionId =
-        'call_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
+    final sessionId = newCallId();
     setActiveCall(
       ActiveCall(sessionId: sessionId),
       otherUser,

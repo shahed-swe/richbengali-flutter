@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
@@ -12,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../core/call_id.dart';
 import '../../models/message.dart';
 import '../../models/user.dart';
 import '../../state/active_chat_provider.dart';
@@ -576,8 +576,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final me = ref.read(meProvider).asData?.value;
     final otherUser = ref.read(_otherUserProvider(_otherUserId)).asData?.value;
 
-    final sessionId =
-        'call_${math.Random().nextInt(999999999).toRadixString(36)}';
+    final sessionId = newCallId();
 
     // Emit call:request via socket
     ref.read(socketServiceProvider).requestCall(
