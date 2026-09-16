@@ -70,12 +70,18 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           message.notification?.body ??
           '';
       // Backend sends `room_id` (snake_case); accept `roomId` too.
-      final roomId =
-          (message.data['roomId'] ?? message.data['room_id'] ?? '').toString();
+      // Prefer the sender's id: it is exactly what the chat route wants, so a
+      // tap needs no parsing. room_id is the fallback for older backends.
+      final target = (message.data['senderId'] ??
+              message.data['actor_id'] ??
+              message.data['roomId'] ??
+              message.data['room_id'] ??
+              '')
+          .toString();
       await LocalNotificationsService.showChatNotification(
         title: senderName,
         body: body,
-        payload: 'chat:$roomId',
+        payload: 'chat:$target',
       );
     }
   } catch (e) {
@@ -199,7 +205,7 @@ class PushService {
     try {
       final pending = await LocalNotificationsService.consumePendingPayload();
       if (pending != null && pending.isNotEmpty) {
-        _deferNavigate(() => _go(pending));
+        _deferNavigate(() => _navigateFromPayload(pending));
       }
     } catch (e) {
       debugPrint('[Push] pending payload error: $e');
@@ -218,6 +224,36 @@ class PushService {
       if (senderId.isNotEmpty) _go('/chats/$senderId');
     }
     // Calls are handled by CallKit / the call overlay, not chat navigation.
+  }
+
+  /// Route a tapped notification's payload.
+  ///
+  /// The payload is `chat:id` — never a route, which is what it used to be
+  /// handed to the router as. That produced `no routes for location:
+  /// chat:/uuid:uuid` and a Page Not Found on launch, because a room id is
+  /// two participant ids joined with a colon and go_router reads the leading
+  /// `chat:` as a URI scheme.
+  ///
+  /// Newer notifications carry the sender's id directly. Older ones — and any
+  /// still sitting in the tray from a previous build — carry the room id, so
+  /// take whichever half of it is not us.
+  void _navigateFromPayload(String payload) {
+    const prefix = 'chat:';
+    if (!payload.startsWith(prefix)) return;
+    final rest = payload.substring(prefix.length).trim();
+    if (rest.isEmpty) return;
+
+    var target = rest;
+    if (rest.contains(':')) {
+      final me = _ref.read(authProvider).user?.id ?? '';
+      final other = rest
+          .split(':')
+          .where((p) => p.isNotEmpty && p != me)
+          .firstOrNull;
+      if (other == null) return;
+      target = other;
+    }
+    _go('/chats/$target');
   }
 
   void _go(String route) {
@@ -394,13 +430,19 @@ class PushService {
         final body = message.data['body']?.toString() ??
             message.notification?.body ??
             '';
-        final roomId =
-            (message.data['roomId'] ?? message.data['room_id'] ?? '').toString();
+        // Same as the background handler: the sender's id is what the chat
+        // route takes, so prefer it over the room id.
+        final target = (message.data['senderId'] ??
+                message.data['actor_id'] ??
+                message.data['roomId'] ??
+                message.data['room_id'] ??
+                '')
+            .toString();
 
         await LocalNotificationsService.showChatNotification(
           title: senderName,
           body: body,
-          payload: 'chat:$roomId',
+          payload: 'chat:$target',
         );
 
         // Refresh notifications provider to update badge count
