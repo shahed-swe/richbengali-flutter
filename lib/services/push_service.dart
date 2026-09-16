@@ -207,6 +207,10 @@ class PushService {
       if (pending != null && pending.isNotEmpty) {
         _deferNavigate(() => _navigateFromPayload(pending));
       }
+
+      // And from here on, act on taps as they happen rather than leaving them
+      // on disk for a cold start that may never come.
+      LocalNotificationsService.onTapWhileRunning = _navigateFromPayload;
     } catch (e) {
       debugPrint('[Push] pending payload error: $e');
     }

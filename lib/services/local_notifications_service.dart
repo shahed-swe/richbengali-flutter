@@ -157,13 +157,25 @@ class LocalNotificationsService {
   // Tap callbacks
   // ---------------------------------------------------------------------------
 
+  /// Set by PushService while the app is running, so a tap can be acted on
+  /// immediately. Without it a tap taken with the app already open only wrote
+  /// the payload to disk, and nothing read that back until the next cold start
+  /// — so tapping a message notification did nothing at all.
+  static void Function(String payload)? onTapWhileRunning;
+
   static void _onTap(NotificationResponse response) {
     final payload = response.payload;
-    if (payload != null && payload.isNotEmpty) {
-      debugPrint('[LocalNotif] Tapped (foreground): $payload');
-      // Navigation is handled by the router once it checks consumePendingPayload
-      _persistPayload(payload);
+    if (payload == null || payload.isEmpty) return;
+    debugPrint('[LocalNotif] Tapped (foreground): $payload');
+
+    final handler = onTapWhileRunning;
+    if (handler != null) {
+      handler(payload);
+      return;
     }
+    // No live handler (cold start still in progress) — leave it for whoever
+    // calls consumePendingPayload next.
+    _persistPayload(payload);
   }
 
   @pragma('vm:entry-point')
