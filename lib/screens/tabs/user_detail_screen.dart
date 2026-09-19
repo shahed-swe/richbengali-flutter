@@ -11,6 +11,7 @@ import '../../data/relations_repository.dart';
 import '../../widgets/image_viewer.dart';
 import '../../widgets/safety/report_block_menu.dart';
 import '../../theme/theme.dart';
+import '../../state/presence_provider.dart';
 
 // Ref data providers (family by type string)
 final _refProvider =
@@ -53,7 +54,12 @@ class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userAsync = ref.watch(userDetailProvider(widget.userId));
+    // Live presence over the fetched profile, so the call buttons reflect
+    // whether they are actually free right now.
+    final presence = ref.watch(presenceProvider);
+    final userAsync = ref
+        .watch(userDetailProvider(widget.userId))
+        .whenData((u) => withPresence(u, presence));
     final statusAsync = ref.watch(relationStatusProvider(widget.userId));
     final status = statusAsync.asData?.value;
 

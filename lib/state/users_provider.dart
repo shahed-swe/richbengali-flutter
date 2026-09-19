@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user.dart';
 import '../data/users_repository.dart';
+import 'presence_provider.dart';
 
 /// Value object for user list filters
 class UserFilters {
@@ -99,7 +100,12 @@ final homeHiddenUsersProvider =
 final visibleUsersProvider =
     Provider.family<AsyncValue<List<User>>, UserFilters>((ref, filters) {
   final hidden = ref.watch(homeHiddenUsersProvider);
-  return ref.watch(usersProvider(filters)).whenData((users) {
+  // Live online / on-a-call state laid over the fetched rows. Without this the
+  // grid keeps showing whatever was true when the list was last fetched — most
+  // noticeably "on a call" long after the call ended.
+  final presence = ref.watch(presenceProvider);
+  return ref.watch(usersProvider(filters)).whenData((fetched) {
+    final users = withPresenceAll(fetched, presence);
     if (hidden.isEmpty) return users;
     final visible =
         users.where((u) => !hidden.contains(u.id.toString())).toList();

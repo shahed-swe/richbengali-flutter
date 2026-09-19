@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/storage.dart';
 import '../models/user.dart';
+import 'presence_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Auth state
@@ -74,6 +75,11 @@ class AuthNotifier extends Notifier<AuthState> {
 
   Future<void> logout() async {
     await AppStorage.clearAuth();
+    // Live presence is about other people, and it must not carry over into
+    // whoever signs in next.
+    try {
+      ref.read(presenceProvider.notifier).clear();
+    } catch (_) {}
     state = const AuthState(hydrated: true);
   }
 }

@@ -10,6 +10,7 @@ import '../state/active_chat_provider.dart';
 import '../state/auth_provider.dart';
 import '../state/call_overlay_provider.dart';
 import '../state/conversations_provider.dart';
+import '../state/presence_provider.dart';
 import '../state/me_provider.dart';
 import '../state/messages_provider.dart';
 import '../state/notifications_provider.dart';
@@ -243,17 +244,24 @@ class SocketService {
 
     // User status changes — broadcast to listeners (used by ConversationRow, header)
     newSocket.on('user:status_change', (data) {
-      if (data is Map<String, dynamic>) {
-        _statusChangeController.add(data);
-        try {
-          ref.invalidate(conversationsProvider);
-        } catch (_) {}
-      } else if (data is Map) {
-        _statusChangeController.add(Map<String, dynamic>.from(data));
-        try {
-          ref.invalidate(conversationsProvider);
-        } catch (_) {}
-      }
+      if (data is! Map) return;
+      final payload = Map<String, dynamic>.from(data);
+      _statusChangeController.add(payload);
+
+      // Record it as live presence. Every screen that shows "online" or "on a
+      // call" reads this, so a change is reflected everywhere at once instead
+      // of only in the conversations list.
+      try {
+        ref.read(presenceProvider.notifier).apply(
+              (payload['userId'] ?? '').toString(),
+              isOnline: payload['is_online'] == true,
+              isInCall: payload['is_in_call'] == true,
+            );
+      } catch (_) {}
+
+      try {
+        ref.invalidate(conversationsProvider);
+      } catch (_) {}
     });
 
     // Chat room events — broadcast to per-screen listeners, AND (BUG A fix)

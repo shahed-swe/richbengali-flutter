@@ -5,13 +5,18 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../state/favorites_provider.dart';
 import '../../widgets/widgets.dart';
 import '../../theme/theme.dart';
+import '../../state/presence_provider.dart';
 
 class FavoritesScreen extends ConsumerWidget {
   const FavoritesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final favAsync = ref.watch(favoritesProvider);
+    // Live presence over the fetched rows, same as the Home grid — otherwise a
+    // favourite stays "on a call" until the list is fetched again.
+    final presence = ref.watch(presenceProvider);
+    final favAsync =
+        ref.watch(favoritesProvider).whenData((l) => withPresenceAll(l, presence));
 
     return Scaffold(
       backgroundColor: Colors.white,
