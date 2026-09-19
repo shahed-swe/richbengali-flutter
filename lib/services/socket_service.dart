@@ -608,6 +608,12 @@ class SocketService {
   void endCall({required String callId}) =>
       emit('call:end', {'callId': callId});
 
+  /// Tell the backend whether our media is actually flowing, so it can freeze
+  /// billing while it is not. Without this the server keeps charging for
+  /// seconds in which neither side could hear the other.
+  void reportCallMedia({required String callId, required bool ok}) =>
+      emit('call:media', {'callId': callId, 'ok': ok});
+
   // Backend routes call:reject to the caller via payload.callerId.
   void rejectCall({required String callId, required String callerId}) =>
       emit('call:reject', {'callId': callId, 'callerId': callerId});

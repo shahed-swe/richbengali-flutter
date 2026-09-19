@@ -50,6 +50,17 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
     with WidgetsBindingObserver {
   // Call timer
   Timer? _timerTick;
+
+  /// Whether media has stopped flowing. The duration stops advancing while
+  /// this is true, and the backend is told so it freezes billing too.
+  final ValueNotifier<bool> _interrupted = ValueNotifier<bool>(false);
+  CallLink _link = CallLink.live;
+
+  /// How long a call is allowed to sit trying to reconnect before it is
+  /// ended. Holding it open indefinitely leaves both people staring at a
+  /// call that is never coming back.
+  static const Duration _reconnectGrace = Duration(seconds: 10);
+  Timer? _reconnectCutoff;
   /// Live call duration in seconds.
   ///
   /// A ValueNotifier rather than plain state: the 1 Hz tick used to call
@@ -90,7 +101,9 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timerTick?.cancel();
+    _reconnectCutoff?.cancel();
     _duration.dispose();
+    _interrupted.dispose();
     try {
       ref
           .read(callServiceProvider)
@@ -195,6 +208,16 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   }
 
   void _onEngineStateChanged() {
+    // Link state first: this must run even when PiP is unavailable, which the
+    // early return below would otherwise skip.
+    if (mounted) {
+      final link = ref.read(callServiceProvider).engineState.link;
+      if (link != _link) {
+        _link = link;
+        _onLinkChanged(link);
+      }
+    }
+
     final pip = _pip;
     if (pip == null || !pip.supported || !mounted) return;
     final callService = ref.read(callServiceProvider);
@@ -268,7 +291,9 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
     _timerTick?.cancel();
     _duration.value = 0;
     _timerTick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) _duration.value++;
+      // Frozen during an interruption: the seconds the two of them could not
+      // hear each other are not part of the call.
+      if (mounted && !_interrupted.value) _duration.value++;
     });
     WakelockPlus.enable().catchError((_) {});
     SystemChrome.setPreferredOrientations([
@@ -331,6 +356,30 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
   // -------------------------------------------------------------------------
   // End / cancel helpers
   // -------------------------------------------------------------------------
+
+  void _onLinkChanged(CallLink link) {
+    final live = link == CallLink.live;
+    _interrupted.value = !live;
+
+    // Tell the backend, so it stops accruing earnings and charges while the
+    // media is down.
+    final callId = ref.read(callOverlayProvider).activeCall?.sessionId;
+    if (callId != null && callId.isNotEmpty) {
+      try {
+        ref.read(socketServiceProvider).reportCallMedia(callId: callId, ok: live);
+      } catch (_) {}
+    }
+
+    _reconnectCutoff?.cancel();
+    _reconnectCutoff = null;
+    if (live) return;
+
+    _reconnectCutoff = Timer(_reconnectGrace, () {
+      if (!mounted) return;
+      debugPrint('[Call] no media for ${_reconnectGrace.inSeconds}s — ending');
+      _endCall();
+    });
+  }
 
   Future<void> _endCall() async {
     final overlay = ref.read(callOverlayProvider);
@@ -497,6 +546,7 @@ class _OngoingCallScreenState extends ConsumerState<OngoingCallScreen>
           inPip: _inPip,
           overlay: overlay,
           duration: _duration,
+          interrupted: _interrupted,
           isVideoPaused: _isVideoPaused,
           isBeautyModalVisible: _isBeautyModalVisible,
           pipX: _pipX,
@@ -728,6 +778,7 @@ class _OngoingUI extends ConsumerWidget {
   const _OngoingUI({
     required this.overlay,
     required this.duration,
+    required this.interrupted,
     required this.inPip,
     required this.isVideoPaused,
     required this.isBeautyModalVisible,
@@ -750,6 +801,10 @@ class _OngoingUI extends ConsumerWidget {
   /// Ticks once per second during the call. Only the duration label and the
   /// earnings pill listen, so the video views never rebuild on a tick.
   final ValueNotifier<int> duration;
+
+  /// True while media has stopped flowing; the pill shows the reconnect state
+  /// instead of a running clock.
+  final ValueNotifier<bool> interrupted;
   /// True while the call is floating in a Picture-in-Picture window — hide all
   /// controls/buttons in that mode (Android shrinks the whole activity).
   final bool inPip;
@@ -845,8 +900,12 @@ class _OngoingUI extends ConsumerWidget {
                   ),
                 ),
                 const Spacer(),
-                // Timer badge
-                Container(
+                // Timer badge — shows the reconnect state instead of a clock
+                // while the media is down, so a frozen timer is never mistaken
+                // for a working call.
+                ValueListenableBuilder<bool>(
+                  valueListenable: interrupted,
+                  builder: (context, down, _) => Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
@@ -859,23 +918,33 @@ class _OngoingUI extends ConsumerWidget {
                       Container(
                         width: 8,
                         height: 8,
-                        decoration: const BoxDecoration(
-                          color: AppColors.green500,
+                        decoration: BoxDecoration(
+                          color: down ? AppColors.orange500 : AppColors.green500,
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 6),
-                      ValueListenableBuilder<int>(
-                        valueListenable: duration,
-                        builder: (context, seconds, _) => Text(
-                          OngoingCallScreen.formatDuration(seconds),
-                          style: const TextStyle(
+                      if (down)
+                        const Text(
+                          'Trying to connect…',
+                          style: TextStyle(
                               color: Colors.white,
                               fontSize: 14,
                               fontWeight: FontWeight.w600),
+                        )
+                      else
+                        ValueListenableBuilder<int>(
+                          valueListenable: duration,
+                          builder: (context, seconds, _) => Text(
+                            OngoingCallScreen.formatDuration(seconds),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600),
+                          ),
                         ),
-                      ),
                     ],
+                  ),
                   ),
                 ),
               ],

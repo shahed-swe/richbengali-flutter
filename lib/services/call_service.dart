@@ -16,12 +16,26 @@ import '../state/me_provider.dart';
 // CallEngineState — lightweight ChangeNotifier the UI watches for joined/uid
 // ---------------------------------------------------------------------------
 
+/// Whether media is actually flowing, as opposed to the call merely existing.
+///
+/// Nothing tracked this before: a call whose network had gone looked exactly
+/// like a healthy one, the on-screen timer kept counting, and the call either
+/// hung there indefinitely or was killed outright.
+enum CallLink { live, reconnecting, lost }
+
 class CallEngineState extends ChangeNotifier {
+  CallLink link = CallLink.live;
   bool joined = false;
   int? remoteUid;
   bool engineReady = false;
   String? channelId;
   int? localUid;
+
+  void _setLink(CallLink v) {
+    if (link == v) return;
+    link = v;
+    notifyListeners();
+  }
 
   void _setJoined(bool v) {
     joined = v;
@@ -47,6 +61,7 @@ class CallEngineState extends ChangeNotifier {
   }
 
   void reset() {
+    link = CallLink.live;
     joined = false;
     remoteUid = null;
     engineReady = false;
@@ -113,6 +128,16 @@ class CallService {
         },
         onUserOffline: (connection, remoteUid, reason) {
           debugPrint('[Agora] Remote user offline: $remoteUid reason: $reason');
+
+          // Only treat this as the other side hanging up when they actually
+          // did. Agora reports the same event when their network drops, and
+          // ending on that meant a momentary blip on their phone killed the
+          // call outright — no chance for either side to come back.
+          if (reason != UserOfflineReasonType.userOfflineQuit) {
+            engineState._setLink(CallLink.reconnecting);
+            return;
+          }
+
           // Signal call end via overlay; the socket call:end will also arrive.
           _ref.read(callOverlayProvider.notifier).clearCall();
           // Remote left → tear down OUR engine too so the mic/camera are freed
@@ -120,6 +145,29 @@ class CallService {
           // keeping the mic/camera busy). Deferred so we don't release the
           // engine from inside its own event callback.
           Future(() => leaveAndRelease());
+        },
+        onConnectionStateChanged: (connection, state, reason) {
+          debugPrint('[Agora] Connection state: $state ($reason)');
+          switch (state) {
+            case ConnectionStateType.connectionStateConnected:
+              engineState._setLink(CallLink.live);
+            case ConnectionStateType.connectionStateReconnecting:
+              engineState._setLink(CallLink.reconnecting);
+            case ConnectionStateType.connectionStateFailed:
+              engineState._setLink(CallLink.lost);
+            default:
+              // Disconnected/connecting also happen while joining and while
+              // leaving on purpose, neither of which is an interruption.
+              break;
+          }
+        },
+        onConnectionLost: (connection) {
+          debugPrint('[Agora] Connection lost');
+          engineState._setLink(CallLink.reconnecting);
+        },
+        onRejoinChannelSuccess: (connection, elapsed) {
+          debugPrint('[Agora] Rejoined channel after ${elapsed}ms');
+          engineState._setLink(CallLink.live);
         },
       ),
     );
