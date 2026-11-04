@@ -59,15 +59,20 @@ class _HeaderRight extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Balance/minutes pill
+          // Wallet pill
           meAsync.when(
             loading: () => const _BalancePillSkeleton(isMale: false),
             error: (e, _) => const SizedBox.shrink(),
             data: (me) {
               final isMale = me.isMale;
               if (isMale) {
-                // Green pill — shows call minutes
-                final minutes = (me.availableCallMinutes ?? 0).floor();
+                // Dollars, not minutes.
+                //
+                // A balance no longer converts to a fixed number of minutes:
+                // how long it lasts depends on the rate of whoever he calls.
+                // Quoting "120 mins" here would be a promise the next call
+                // could halve.
+                final balance = me.walletBalanceUsd ?? 0.0;
                 return GestureDetector(
                   onTap: () => context.push('/plans'),
                   child: _Pill(
@@ -83,7 +88,7 @@ class _HeaderRight extends ConsumerWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          '$minutes mins',
+                          '\$${balance.toStringAsFixed(2)}',
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,

@@ -101,7 +101,9 @@ class PlanCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  'Up to ${plan.callMinutes} Call Mins',
+                  // Credit, not minutes: what a dollar buys in talk time
+                  // depends on the rate of whoever he calls.
+                  '\$${plan.amountUsd.toStringAsFixed(0)} call credit',
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w600,

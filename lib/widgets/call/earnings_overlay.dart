@@ -63,14 +63,15 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
     super.dispose();
   }
 
-  int _displayMinutes() {
-    final me = widget.me;
-    final baseBalance = me.walletBalanceUsd ?? 0.0;
-    final baseMinutes = me.availableCallMinutes ?? 0.0;
-    if (_liveMaleBalance != null && baseMinutes > 0 && baseBalance > 0) {
-      return ((_liveMaleBalance! / (baseBalance / baseMinutes))).floor();
-    }
-    return (me.availableCallMinutes ?? 0).toInt();
+  /// What he has left, in dollars.
+  ///
+  /// Was a minute count derived from his balance, which only held while every
+  /// call cost the same. Rates differ per creator now, so the same balance is
+  /// worth a different number of minutes on every call — the dollars are the
+  /// only figure that stays true, and the server already ticks them down at
+  /// this call's rate.
+  double _displayBalance() {
+    return _liveMaleBalance ?? widget.me.walletBalanceUsd ?? 0.0;
   }
 
   @override
@@ -94,8 +95,11 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
               );
             },
           )
-        : _ValueText(text: '${_displayMinutes()}', color: iconColor);
-    final labelText = isFemale ? 'Earnings' : 'mins';
+        : _ValueText(
+            text: '\$${_displayBalance().toStringAsFixed(2)}',
+            color: iconColor,
+          );
+    final labelText = isFemale ? 'Earnings' : 'Balance';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
