@@ -7,7 +7,6 @@ import '../../state/transactions_provider.dart';
 import '../../state/payouts_provider.dart';
 import '../../models/transaction.dart';
 import '../../models/payout.dart';
-import '../../models/user.dart';
 import '../../widgets/skeleton.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/payout_modal.dart';
@@ -57,10 +56,6 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
     await ref.read(meProvider.notifier).refresh();
   }
 
-  void _openPayoutModal(Me me) {
-    showPayoutModal(context, me);
-  }
-
   @override
   Widget build(BuildContext context) {
     final meAsync = ref.watch(meProvider);
@@ -85,8 +80,8 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
     final balance = me?.walletBalanceUsd ?? 0.0;
     final today = me?.todayEarnedUsd ?? 0.0;
     final lifetime = me?.lifetimeEarningsUsd ?? 0.0;
-    final minCap = me?.minWithdrawalCap ?? 10.0;
-    final canWithdraw = balance >= minCap;
+    final minCap = me?.minWithdrawalCap ?? 50.0;
+    final hasPayoutMethod = me?.wiseRecipientId?.isNotEmpty == true;
 
     final txState = ref.watch(transactionsProvider);
     final payState = ref.watch(payoutsProvider);
@@ -232,55 +227,54 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                                 ),
                               ),
 
-                              const SizedBox(width: 12),
-
-                              // Withdraw button
-                              GestureDetector(
-                                onTap: (canWithdraw && me != null)
-                                    ? () => _openPayoutModal(me)
-                                    : null,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: canWithdraw
-                                        ? Colors.white
-                                        : Colors.white.withValues(alpha: 0.92),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        LucideIcons.arrowUpRight,
-                                        size: 14,
-                                        color: canWithdraw
-                                            ? AppColors.emerald700
-                                            : AppColors.gray400,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Withdraw',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: canWithdraw
-                                              ? AppColors.emerald700
-                                              : AppColors.gray400,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
                             ],
                           ),
 
-                    // Minimum withdrawal hint — always visible so users know
-                    // the threshold (and why the Withdraw button is disabled
-                    // when the balance is below it).
+                    // Payout details.
+                    //
+                    // The Withdraw button used to be the only way into this
+                    // form. She no longer starts her own payouts, but the team
+                    // still needs somewhere to send the money, so the form
+                    // needs its own way in.
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: me == null ? null : () => showPayoutModal(context, me),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              LucideIcons.landmark,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              hasPayoutMethod
+                                  ? 'Payout details'
+                                  : 'Add payout details',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                     const SizedBox(height: 10),
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -292,7 +286,11 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                         ),
                         const SizedBox(width: 5),
                         Text(
-                          'Minimum withdrawal: \$${minCap.toStringAsFixed(2)}',
+                          !hasPayoutMethod
+                              ? 'Add your payout details to get paid'
+                              : balance >= minCap
+                                  ? 'Payouts are sent by our team'
+                                  : 'Paid out once you reach \$${minCap.toStringAsFixed(0)}',
                           style: const TextStyle(
                             color: Color(0xE6FFFFFF),
                             fontSize: 11,

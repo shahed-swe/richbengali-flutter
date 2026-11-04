@@ -1,15 +1,12 @@
 // ignore_for_file: deprecated_member_use
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../models/user.dart';
 import '../data/payouts_repository.dart';
 import '../state/me_provider.dart';
 import '../theme/theme.dart';
 
-enum _Step { method, withdraw }
 enum _MethodType { wallet, bank }
 
 class PayoutModal extends ConsumerStatefulWidget {
@@ -22,7 +19,6 @@ class PayoutModal extends ConsumerStatefulWidget {
 }
 
 class _PayoutModalState extends ConsumerState<PayoutModal> {
-  late _Step _step;
   _MethodType _methodType = _MethodType.wallet;
 
   // Method form controllers
@@ -36,18 +32,11 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
   final _streetCtrl = TextEditingController();
   String _currency = 'BDT';
 
-  // Withdraw form
-  final _amountCtrl = TextEditingController();
-
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _step = (widget.me.wiseRecipientId?.isNotEmpty == true)
-        ? _Step.withdraw
-        : _Step.method;
-
     // Pre-fill from wiseRecipientDetails if available
     final details = widget.me.wiseRecipientDetails;
     if (details != null) {
@@ -79,7 +68,6 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
     _cityCtrl.dispose();
     _postCodeCtrl.dispose();
     _streetCtrl.dispose();
-    _amountCtrl.dispose();
     super.dispose();
   }
 
@@ -145,7 +133,7 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
             details: details,
           );
       await ref.read(meProvider.notifier).refresh();
-      if (mounted) setState(() => _step = _Step.withdraw);
+      if (mounted) Navigator.of(context).pop();
     } catch (e) {
       _showAlert(_payoutError(e, 'Failed to save method. Please try again.'));
     } finally {
@@ -153,39 +141,7 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
     }
   }
 
-  Future<void> _handleWithdraw() async {
-    final amountStr = _amountCtrl.text.trim();
-    final amount = double.tryParse(amountStr) ?? 0;
-    final balance = widget.me.walletBalanceUsd ?? 0;
-    final minCap = widget.me.minWithdrawalCap ?? 10.0;
-
-    if (amount < minCap) {
-      _showAlert('Minimum withdrawal is \$${minCap.toStringAsFixed(2)}.');
-      return;
-    }
-    if (amount > balance) {
-      _showAlert('Amount exceeds your available balance.');
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      final url =
-          await ref.read(payoutsRepositoryProvider).requestPayout(amountUsd: amount);
-      if (url != null && url.isNotEmpty) {
-        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          _showAlert('Withdrawal request submitted successfully!');
-        }
-      }
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      _showAlert(_payoutError(e, 'Failed to request payout. Please try again.'));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
+  
 
   String _payoutError(Object e, String fallback) {
     if (e is DioException) {
@@ -220,7 +176,6 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
 
   @override
   Widget build(BuildContext context) {
-    final isMethod = _step == _Step.method;
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 40),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -240,11 +195,9 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        isMethod
-                            ? 'SECURE YOUR EARNINGS'
-                            : 'TRANSFER TO YOUR ACCOUNT',
-                        style: const TextStyle(
+                      const Text(
+                        'WHERE TO SEND YOUR EARNINGS',
+                        style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
                           color: Color(0xB3FFFFFF),
@@ -252,9 +205,9 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        isMethod ? 'Payout Setup' : 'Withdraw Funds',
-                        style: const TextStyle(
+                      const Text(
+                        'Payout Details',
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w700,
                           color: Colors.white,
@@ -275,12 +228,12 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              child: isMethod ? _buildMethodStep() : _buildWithdrawStep(),
+              child: _buildMethodStep(),
             ),
           ),
 
           // Footer
-          _buildFooter(isMethod),
+          _buildFooter(),
         ],
       ),
     );
@@ -369,123 +322,9 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
     );
   }
 
-  Widget _buildWithdrawStep() {
-    final details = widget.me.wiseRecipientDetails;
-    final displayName = details?['display']?.toString() ??
-        details?['firstName']?.toString();
-    final balance = widget.me.walletBalanceUsd ?? 0;
-    final minCap = widget.me.minWithdrawalCap ?? 10.0;
+  
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Method info card
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: AppColors.cardBlue,
-            border: Border.all(color: AppColors.cardBlue100),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'LINKED METHOD',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.gray500,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (displayName != null) ...[
-                Text(
-                  displayName,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.brandPink,
-                  ),
-                ),
-                if (details?['type'] != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    '${details!['type']} · ${details['currency'] ?? ''}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.gray500,
-                    ),
-                  ),
-                ],
-              ] else
-                const Text(
-                  'No method linked',
-                  style: TextStyle(
-                    fontStyle: FontStyle.italic,
-                    color: AppColors.gray500,
-                  ),
-                ),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: () => setState(() => _step = _Step.method),
-                child: const Text(
-                  'Change Method',
-                  style: TextStyle(
-                    color: Colors.blue,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // Amount input
-        TextFormField(
-          controller: _amountCtrl,
-          keyboardType:
-              const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-          ],
-          decoration: _inputDecoration('Amount').copyWith(
-            prefixText: '\$ ',
-            prefixStyle: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: AppColors.gray700,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Available Balance: \$${balance.toStringAsFixed(2)}',
-          style: const TextStyle(fontSize: 12, color: AppColors.gray500),
-        ),
-        const SizedBox(height: 12),
-
-        // Note card
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppColors.cardAmber,
-            border: Border.all(color: AppColors.cardAmber100),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            'Minimum withdrawal: \$${minCap.toStringAsFixed(2)}. '
-            'Admin will review and process within 2–5 business days.',
-            style: const TextStyle(fontSize: 12, color: AppColors.gray700),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFooter(bool isMethod) {
+  Widget _buildFooter() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: const BoxDecoration(
@@ -515,7 +354,7 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
             child: OutlinedButton(
               onPressed: _isLoading
                   ? null
-                  : (isMethod ? _handleSaveMethod : _handleWithdraw),
+                  : _handleSaveMethod,
               style: OutlinedButton.styleFrom(
                 backgroundColor: const Color(0xFFecfdf5),
                 side: BorderSide(
@@ -537,9 +376,9 @@ class _PayoutModalState extends ConsumerState<PayoutModal> {
                         ),
                       ),
                     )
-                  : Text(
-                      isMethod ? 'Save Method' : 'Confirm',
-                      style: const TextStyle(
+                  : const Text(
+                      'Save',
+                      style: TextStyle(
                         color: AppColors.emerald700,
                         fontWeight: FontWeight.w700,
                       ),

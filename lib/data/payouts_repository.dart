@@ -44,20 +44,6 @@ class PayoutsRepository {
       data: {'currency': currency, 'type': type, 'details': details},
     );
   }
-
-  /// Returns url if the backend returns one (e.g. for Wise redirect), else null.
-  Future<String?> requestPayout({required double amountUsd}) async {
-    // Backend requestSchema requires platform to be 'app' or 'web'.
-    final resp = await _dio.post<dynamic>(
-      '/payouts/request',
-      data: {'amount_usd': amountUsd, 'platform': 'app'},
-    );
-    final raw = resp.data;
-    if (raw is Map) {
-      return raw['url']?.toString();
-    }
-    return null;
-  }
 }
 
 final payoutsRepositoryProvider = Provider<PayoutsRepository>((ref) {
