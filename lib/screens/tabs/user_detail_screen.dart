@@ -250,6 +250,19 @@ class _UserDetailScreenState extends ConsumerState<UserDetailScreen> {
                                           icon: LucideIcons.briefcase,
                                           label: user.work!,
                                         ),
+                                      // What she costs to call. Her rate sets
+                                      // how fast his balance drains, so he
+                                      // should see it before he dials rather
+                                      // than work it out afterwards from a
+                                      // wallet that emptied quicker than he
+                                      // expected.
+                                      if (user.gender == 'female' &&
+                                          (user.callPricePerMinuteUsd ?? 0) > 0)
+                                        _Badge(
+                                          icon: LucideIcons.phoneCall,
+                                          label:
+                                              '\$${user.callPricePerMinuteUsd!.toStringAsFixed(2)}/min',
+                                        ),
                                     ],
                                   ),
                                 ],

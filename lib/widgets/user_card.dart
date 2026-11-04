@@ -119,6 +119,24 @@ class UserCard extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                    // Her price, on the card itself. Rates differ per creator
+                    // now, so browsing without it would mean picking someone
+                    // without knowing whether she costs $0.39 or $1.16 a
+                    // minute.
+                    if (user.gender == 'female' &&
+                        (user.callPricePerMinuteUsd ?? 0) > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          '\$${user.callPricePerMinuteUsd!.toStringAsFixed(2)}/min',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          maxLines: 1,
+                        ),
+                      ),
                   ],
                 ),
               ),

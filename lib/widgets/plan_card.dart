@@ -101,7 +101,7 @@ class PlanCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  '${plan.callMinutes} Call Mins',
+                  'Up to ${plan.callMinutes} Call Mins',
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w600,

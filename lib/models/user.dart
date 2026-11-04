@@ -68,6 +68,14 @@ class User {
   final bool? isPremium;
   final String? stripeSubscriptionId;
 
+  /// What this creator has chosen to be paid, USD per hour.
+  final double? hourlyRateUsd;
+
+  /// What a caller is charged per minute to talk to her — her rate times the
+  /// platform's multiplier. Derived on the server so every client quotes the
+  /// price that settlement will actually charge.
+  final double? callPricePerMinuteUsd;
+
   // Relation flags (from GET /users)
   final bool isLiked;
   final bool isFavorited;
@@ -105,6 +113,8 @@ class User {
     this.interests = const [],
     this.photoList = const [],
     this.walletBalanceUsd,
+    this.hourlyRateUsd,
+    this.callPricePerMinuteUsd,
     this.lifetimeEarningsUsd,
     this.todayEarnedUsd,
     this.isPremium,
@@ -188,6 +198,8 @@ class User {
       interests: parseStringList(json['interests']),
       photoList: photos,
       walletBalanceUsd: asDoubleN(json['wallet_balance_usd']),
+      hourlyRateUsd: asDoubleN(json['hourly_rate_usd']),
+      callPricePerMinuteUsd: asDoubleN(json['call_price_per_minute_usd']),
       lifetimeEarningsUsd: asDoubleN(json['lifetime_earnings_usd']),
       todayEarnedUsd: asDoubleN(json['today_earned_usd']),
       isPremium: json['is_premium'] == null ? null : asBool(json['is_premium']),
@@ -229,6 +241,9 @@ class User {
       'interests': interests,
       'photos': photoList.map((p) => p.toJson()).toList(),
       if (walletBalanceUsd != null) 'wallet_balance_usd': walletBalanceUsd,
+      if (hourlyRateUsd != null) 'hourly_rate_usd': hourlyRateUsd,
+      if (callPricePerMinuteUsd != null)
+        'call_price_per_minute_usd': callPricePerMinuteUsd,
       if (lifetimeEarningsUsd != null)
         'lifetime_earnings_usd': lifetimeEarningsUsd,
       if (todayEarnedUsd != null) 'today_earned_usd': todayEarnedUsd,
@@ -273,6 +288,8 @@ class User {
     List<String>? interests,
     List<UserPhoto>? photoList,
     double? walletBalanceUsd,
+    double? hourlyRateUsd,
+    double? callPricePerMinuteUsd,
     double? lifetimeEarningsUsd,
     double? todayEarnedUsd,
     bool? isPremium,
@@ -311,6 +328,9 @@ class User {
       interests: interests ?? this.interests,
       photoList: photoList ?? this.photoList,
       walletBalanceUsd: walletBalanceUsd ?? this.walletBalanceUsd,
+      hourlyRateUsd: hourlyRateUsd ?? this.hourlyRateUsd,
+      callPricePerMinuteUsd:
+          callPricePerMinuteUsd ?? this.callPricePerMinuteUsd,
       lifetimeEarningsUsd: lifetimeEarningsUsd ?? this.lifetimeEarningsUsd,
       todayEarnedUsd: todayEarnedUsd ?? this.todayEarnedUsd,
       isPremium: isPremium ?? this.isPremium,
@@ -328,10 +348,54 @@ class User {
   }
 }
 
+/// One rung of the creator rate ladder, as GET /users/me describes it.
+///
+/// The server decides which rungs exist, what each one costs a caller, and
+/// whether this creator has reached it — the client only draws the result. That
+/// keeps the rule in one place: the picker hides what is locked, and the server
+/// refuses it regardless, since the picker is only a suggestion.
+class RateTier {
+  final double femaleHourlyUsd;
+  final double malePricePerMinute;
+  final double dailyCapUsd;
+  final bool unlocked;
+  final double requiredHours;
+  final double hoursRemaining;
+
+  const RateTier({
+    required this.femaleHourlyUsd,
+    this.malePricePerMinute = 0,
+    this.dailyCapUsd = 0,
+    this.unlocked = false,
+    this.requiredHours = 0,
+    this.hoursRemaining = 0,
+  });
+
+  factory RateTier.fromJson(Map<String, dynamic> json) => RateTier(
+        femaleHourlyUsd: asDouble(json['female_hourly_usd']),
+        malePricePerMinute: asDouble(json['male_price_per_minute']),
+        dailyCapUsd: asDouble(json['daily_cap_usd']),
+        unlocked: asBool(json['unlocked']),
+        requiredHours: asDouble(json['required_hours']),
+        hoursRemaining: asDouble(json['hours_remaining']),
+      );
+}
+
 /// Full "Me" model — superset of User, returned by GET /users/me
 class Me extends User {
   final double? availableCallMinutes;
   final double? minWithdrawalCap;
+
+  /// The full rate ladder with each rung's unlock state. Creators only — the
+  /// server omits it for callers, so an empty list means "not a creator".
+  final List<RateTier> rateTiers;
+
+  /// Hours of completed calls she has been paid for, ever. What the upper
+  /// tiers unlock on.
+  final double? talkHours;
+
+  /// The most she can earn in a day at her current rate.
+  final double? dailyCapUsd;
   final String? stripePriceId;
   final String? stripeSubscriptionStatus;
   final bool? stripeCancelAtPeriodEnd;
@@ -362,6 +426,8 @@ class Me extends User {
     super.interests,
     super.photoList,
     super.walletBalanceUsd,
+    super.hourlyRateUsd,
+    super.callPricePerMinuteUsd,
     super.lifetimeEarningsUsd,
     super.todayEarnedUsd,
     super.isPremium,
@@ -377,6 +443,9 @@ class Me extends User {
     super.createdAt,
     this.availableCallMinutes,
     this.minWithdrawalCap,
+    this.rateTiers = const [],
+    this.talkHours,
+    this.dailyCapUsd,
     this.stripePriceId,
     this.stripeSubscriptionStatus,
     this.stripeCancelAtPeriodEnd,
@@ -410,6 +479,8 @@ class Me extends User {
       interests: user.interests,
       photoList: user.photoList,
       walletBalanceUsd: user.walletBalanceUsd,
+      hourlyRateUsd: user.hourlyRateUsd,
+      callPricePerMinuteUsd: user.callPricePerMinuteUsd,
       lifetimeEarningsUsd: user.lifetimeEarningsUsd,
       todayEarnedUsd: user.todayEarnedUsd,
       isPremium: user.isPremium,
@@ -425,6 +496,14 @@ class Me extends User {
       createdAt: user.createdAt,
       availableCallMinutes: asDoubleN(json['available_call_minutes']),
       minWithdrawalCap: asDoubleN(json['min_withdrawal_cap']),
+      rateTiers: json['rate_tiers'] is List
+          ? (json['rate_tiers'] as List)
+              .whereType<Map>()
+              .map((t) => RateTier.fromJson(Map<String, dynamic>.from(t)))
+              .toList()
+          : const [],
+      talkHours: asDoubleN(json['talk_hours']),
+      dailyCapUsd: asDoubleN(json['daily_cap_usd']),
       stripePriceId: json['stripe_price_id']?.toString(),
       stripeSubscriptionStatus:
           json['stripe_subscription_status']?.toString(),

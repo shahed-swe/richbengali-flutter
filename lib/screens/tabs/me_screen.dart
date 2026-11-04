@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -36,6 +37,7 @@ class _MeScreenState extends ConsumerState<MeScreen> {
 
   bool _saving = false;
   bool _avatarLoading = false;
+  bool _rateSaving = false;
   String? _viewedImage;
 
   // Track which user id the controllers were last seeded from.
@@ -283,6 +285,8 @@ class _MeScreenState extends ConsumerState<MeScreen> {
 
                         // Earnings card (female only)
                         if (me.gender == 'female') ...[
+                          _buildRateCard(me),
+                          const SizedBox(height: 16),
                           _buildEarningsCard(),
                           const SizedBox(height: 16),
                         ],
@@ -423,6 +427,196 @@ class _MeScreenState extends ConsumerState<MeScreen> {
         ],
       ),
     );
+  }
+
+  /// The creator's hourly rate.
+  ///
+  /// Saved the moment she picks, not on the Save button at the bottom of the
+  /// screen. This is the one field here that changes what callers are charged,
+  /// and two of its outcomes need to be said out loud straight away — the tier
+  /// is still locked, or she is on a call right now — which a patch bundled
+  /// with her name and city could not report without being confusing about
+  /// what did and did not save.
+  Widget _buildRateCard(Me me) {
+    final tiers = me.rateTiers;
+    final current = me.hourlyRateUsd ?? (tiers.isNotEmpty ? tiers.first.femaleHourlyUsd : 10);
+    final selected = tiers.firstWhere(
+      (t) => t.femaleHourlyUsd == current,
+      orElse: () => RateTier(femaleHourlyUsd: current),
+    );
+    final locked = tiers.where((t) => !t.unlocked).toList();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: AppRadius.border24,
+        border: Border.all(
+          color: AppColors.emerald500.withValues(alpha: 0.3),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(LucideIcons.badgeDollarSign,
+                  color: AppColors.emerald500, size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'Your Rate',
+                style:
+                    AppTextStyles.textLgBold.copyWith(color: AppColors.gray800),
+              ),
+              const Spacer(),
+              if (_rateSaving)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'What you earn per hour on calls.',
+            style: AppTextStyles.textBase.copyWith(color: AppColors.gray500),
+          ),
+          const SizedBox(height: 14),
+
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFecfdf5),
+              borderRadius: AppRadius.border12,
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<double>(
+                value: tiers.any((t) => t.femaleHourlyUsd == current)
+                    ? current
+                    : null,
+                hint: Text('\$${current.toStringAsFixed(0)}/hour'),
+                isExpanded: true,
+                borderRadius: AppRadius.border12,
+                icon: Icon(LucideIcons.chevronDown,
+                    color: AppColors.emerald700, size: 20),
+                style: AppTextStyles.textLgBold
+                    .copyWith(color: AppColors.emerald700),
+                // A locked rung is shown greyed with what it still needs, not
+                // hidden: seeing that $30 exists and needs 60 hours is the
+                // point of the ladder.
+                items: tiers
+                    .map(
+                      (t) => DropdownMenuItem<double>(
+                        value: t.femaleHourlyUsd,
+                        enabled: t.unlocked,
+                        child: Row(
+                          children: [
+                            Text(
+                              '\$${t.femaleHourlyUsd.toStringAsFixed(0)}/hour',
+                              style: AppTextStyles.textLgBold.copyWith(
+                                color: t.unlocked
+                                    ? AppColors.emerald700
+                                    : AppColors.gray500,
+                              ),
+                            ),
+                            if (!t.unlocked) ...[
+                              const SizedBox(width: 8),
+                              Icon(LucideIcons.lock,
+                                  size: 14, color: AppColors.gray500),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  '${t.hoursRemaining.toStringAsFixed(t.hoursRemaining % 1 == 0 ? 0 : 1)}h of calls to go',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.textBase
+                                      .copyWith(color: AppColors.gray500),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _rateSaving ? null : (v) => _handleRateChange(v, current),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+          // What the choice means on both sides, so the trade-off is visible
+          // before she picks: a higher rate pays her more per minute but makes
+          // her more expensive to call.
+          _RateFact(
+            icon: LucideIcons.phoneCall,
+            label: 'Callers pay',
+            value: selected.malePricePerMinute > 0
+                ? '\$${selected.malePricePerMinute.toStringAsFixed(2)}/min'
+                : '—',
+          ),
+          const SizedBox(height: 6),
+          _RateFact(
+            icon: LucideIcons.gauge,
+            label: 'Most you can earn per day',
+            value: selected.dailyCapUsd > 0
+                ? '\$${selected.dailyCapUsd.toStringAsFixed(0)}'
+                : '—',
+          ),
+          if (locked.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _RateFact(
+              icon: LucideIcons.clock,
+              label: 'Call hours so far',
+              value: '${(me.talkHours ?? 0).toStringAsFixed(1)}h',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleRateChange(double? next, double current) async {
+    if (next == null || next == current) return;
+    setState(() => _rateSaving = true);
+    try {
+      await ref.read(meProvider.notifier).patchMe({'hourly_rate_usd': next});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Your rate is now \$${next.toStringAsFixed(0)}/hour'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        // The server explains itself for the two refusals that matter — the
+        // tier is locked, or a call is in progress — so show its words rather
+        // than a generic failure.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_rateErrorText(e))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _rateSaving = false);
+    }
+  }
+
+  String _rateErrorText(Object e) {
+    if (e is DioException) {
+      final body = e.response?.data;
+      if (body is Map && body['message'] is String) return body['message'] as String;
+    }
+    return 'Could not change your rate. Please try again.';
   }
 
   Widget _buildEarningsCard() {
@@ -689,6 +883,42 @@ class _MeScreenState extends ConsumerState<MeScreen> {
 // ── Shared sub-widgets ────────────────────────────────────────────────────────
 
 /// White rounded card with shadow — matches the RN `rounded-3xl shadow-lg p-6`
+/// One "label ....... value" line under the rate picker.
+class _RateFact extends StatelessWidget {
+  const _RateFact({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 15, color: AppColors.gray500),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: AppTextStyles.textBase.copyWith(color: AppColors.gray500),
+          ),
+        ),
+        Text(
+          value,
+          style: AppTextStyles.textBase.copyWith(
+            color: AppColors.gray800,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _Card extends StatelessWidget {
   const _Card({required this.child});
   final Widget child;
