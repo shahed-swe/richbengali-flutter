@@ -359,6 +359,13 @@ class RateTier {
   final double malePricePerMinute;
   final double dailyCapUsd;
   final bool unlocked;
+
+  /// What a locked tier costs to open, and what is still left to earn, in the
+  /// same dollars her earnings screen shows. The hour figures below say the
+  /// same thing in the units the server used before the bar became money; they
+  /// are kept only so an older build keeps rendering something true.
+  final double requiredUsd;
+  final double usdRemaining;
   final double requiredHours;
   final double hoursRemaining;
 
@@ -367,6 +374,8 @@ class RateTier {
     this.malePricePerMinute = 0,
     this.dailyCapUsd = 0,
     this.unlocked = false,
+    this.requiredUsd = 0,
+    this.usdRemaining = 0,
     this.requiredHours = 0,
     this.hoursRemaining = 0,
   });
@@ -376,6 +385,8 @@ class RateTier {
         malePricePerMinute: asDouble(json['male_price_per_minute']),
         dailyCapUsd: asDouble(json['daily_cap_usd']),
         unlocked: asBool(json['unlocked']),
+        requiredUsd: asDouble(json['required_usd']),
+        usdRemaining: asDouble(json['usd_remaining']),
         requiredHours: asDouble(json['required_hours']),
         hoursRemaining: asDouble(json['hours_remaining']),
       );
@@ -393,6 +404,9 @@ class Me extends User {
   /// Hours of completed calls she has been paid for, ever. What the upper
   /// tiers unlock on.
   final double? talkHours;
+
+  /// Lifetime call earnings, as the rate picker's unlock hint reads them.
+  final double? rateUnlockEarnedUsd;
 
   /// The most she can earn in a day at her current rate.
   final double? dailyCapUsd;
@@ -445,6 +459,7 @@ class Me extends User {
     this.minWithdrawalCap,
     this.rateTiers = const [],
     this.talkHours,
+    this.rateUnlockEarnedUsd,
     this.dailyCapUsd,
     this.stripePriceId,
     this.stripeSubscriptionStatus,
@@ -503,6 +518,7 @@ class Me extends User {
               .toList()
           : const [],
       talkHours: asDoubleN(json['talk_hours']),
+      rateUnlockEarnedUsd: asDoubleN(json['rate_unlock_earned_usd']),
       dailyCapUsd: asDoubleN(json['daily_cap_usd']),
       stripePriceId: json['stripe_price_id']?.toString(),
       stripeSubscriptionStatus:

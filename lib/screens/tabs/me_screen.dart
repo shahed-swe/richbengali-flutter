@@ -510,9 +510,9 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                     color: AppColors.emerald700, size: 20),
                 style: AppTextStyles.textLgBold
                     .copyWith(color: AppColors.emerald700),
-                // A locked rung is shown greyed with what it still needs, not
-                // hidden: seeing that $30 exists and needs 60 hours is the
-                // point of the ladder.
+                // A locked rung is shown greyed with what it still needs,
+                // not hidden: seeing that $30 exists, and what opens it, is
+                // the point of the ladder.
                 items: tiers
                     .map(
                       (t) => DropdownMenuItem<double>(
@@ -535,7 +535,7 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                               const SizedBox(width: 4),
                               Flexible(
                                 child: Text(
-                                  '${t.hoursRemaining.toStringAsFixed(t.hoursRemaining % 1 == 0 ? 0 : 1)}h of calls to go',
+                                  'earn \$${_money(t.usdRemaining)} more',
                                   overflow: TextOverflow.ellipsis,
                                   style: AppTextStyles.textBase
                                       .copyWith(color: AppColors.gray500),
@@ -551,6 +551,21 @@ class _MeScreenState extends ConsumerState<MeScreen> {
               ),
             ),
           ),
+
+          // Why the other rates are greyed out, said plainly and without
+          // making her open the dropdown to find out. A locked rung inside the
+          // menu can only afford four words; the reason she is locked at all —
+          // that the ladder is opened by earning, and by how little — needs a
+          // sentence, and it belongs on the card she is already reading.
+          if (locked.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _RateUnlockHint(
+              earnedUsd: me.rateUnlockEarnedUsd ?? 0,
+              goalUsd: _nextUnlockGoal(locked),
+              lockedRates:
+                  locked.map((t) => t.femaleHourlyUsd).toList(growable: false),
+            ),
+          ],
 
           const SizedBox(height: 14),
           // What the choice means on both sides, so the trade-off is visible
@@ -571,18 +586,21 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                 ? '\$${selected.dailyCapUsd.toStringAsFixed(0)}'
                 : '—',
           ),
-          if (locked.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            _RateFact(
-              icon: LucideIcons.clock,
-              label: 'Call hours so far',
-              value: '${(me.talkHours ?? 0).toStringAsFixed(1)}h',
-            ),
-          ],
         ],
       ),
     );
   }
+
+  /// The cheapest rung she has not opened yet — the one worth aiming at.
+  ///
+  /// Every locked rung costs the same today, but reading the minimum rather
+  /// than assuming so keeps the hint honest if the ladder is ever staggered
+  /// again from the server.
+  double _nextUnlockGoal(List<RateTier> locked) => locked.fold<double>(
+        0,
+        (lowest, t) =>
+            lowest == 0 || t.requiredUsd < lowest ? t.requiredUsd : lowest,
+      );
 
   Future<void> _handleRateChange(double? next, double current) async {
     if (next == null || next == current) return;
@@ -884,6 +902,104 @@ class _MeScreenState extends ConsumerState<MeScreen> {
 
 /// White rounded card with shadow — matches the RN `rounded-3xl shadow-lg p-6`
 /// One "label ....... value" line under the rate picker.
+/// Money as she would write it: $10, not $10.0, but $3.87 kept exact.
+///
+/// A requirement reads as a round number and her progress towards it usually
+/// does not, and rounding the progress up would show "$10 of $10" on an
+/// account that is still locked.
+String _money(double v) =>
+    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+
+/// Why the higher rates are greyed out, and how close she is to them.
+///
+/// Shown only while something is still locked, so it disappears the moment it
+/// stops being true rather than lingering as decoration. The bar is the point:
+/// the goal is small enough that seeing it nearly full is the encouragement,
+/// and a creator who has earned nothing sees an empty bar against a number she
+/// can reach in an hour of calls.
+class _RateUnlockHint extends StatelessWidget {
+  const _RateUnlockHint({
+    required this.earnedUsd,
+    required this.goalUsd,
+    required this.lockedRates,
+  });
+
+  final double earnedUsd;
+  final double goalUsd;
+  final List<double> lockedRates;
+
+  /// "$20/hour" — or "$20/hour and $30/hour" — in the order the ladder climbs.
+  String get _lockedLabel {
+    final rates = [...lockedRates]..sort();
+    final parts = rates.map((r) => '\$${_money(r)}/hour').toList();
+    if (parts.length == 1) return parts.first;
+    return '${parts.sublist(0, parts.length - 1).join(', ')} and ${parts.last}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Clamped, because earnings can pass the goal in the moment between a call
+    // settling and the tier list being refetched.
+    final progress =
+        goalUsd <= 0 ? 0.0 : (earnedUsd / goalUsd).clamp(0.0, 1.0).toDouble();
+    final remaining = (goalUsd - earnedUsd).clamp(0.0, goalUsd).toDouble();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFfffbeb),
+        borderRadius: AppRadius.border12,
+        border: Border.all(color: const Color(0xFFfde68a)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(LucideIcons.lock, size: 15, color: const Color(0xFF92400e)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Start earning to unlock $_lockedLabel',
+                  style: AppTextStyles.textBaseBold
+                      .copyWith(color: const Color(0xFF92400e)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            earnedUsd <= 0
+                ? 'Take your first calls at your current rate. Once you have '
+                    'earned \$${_money(goalUsd)} in total, the higher rates open up.'
+                : 'You have earned \$${_money(earnedUsd)} so far. Earn '
+                    '\$${_money(remaining)} more and the higher rates open up.',
+            style: AppTextStyles.textSm.copyWith(color: const Color(0xFF92400e)),
+          ),
+          const SizedBox(height: 10),
+          // The bar and the figures say the same thing; neither is load-bearing
+          // on its own, so the hint still reads with images or colour off.
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              backgroundColor: const Color(0xFFfde68a),
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(Color(0xFFf59e0b)),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '\$${_money(earnedUsd)} of \$${_money(goalUsd)} earned',
+            style: AppTextStyles.textXs.copyWith(color: const Color(0xFF92400e)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RateFact extends StatelessWidget {
   const _RateFact({
     required this.icon,
