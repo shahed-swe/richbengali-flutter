@@ -17,6 +17,7 @@ import '../screens/tabs/chat_detail_screen.dart';
 import '../screens/tabs/earnings_screen.dart';
 import '../screens/tabs/payout_screen.dart';
 import '../screens/tabs/subscription_screen.dart';
+import '../screens/safety/safety_support_screen.dart';
 
 final goRouterProvider = Provider<GoRouter>((ref) {
   final notifier = ref.watch(routerNotifierProvider);
@@ -200,6 +201,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
                     builder: (context, state) => SubscriptionScreen(
                       status: state.uri.queryParameters['status'],
                     ),
+                  ),
+                  GoRoute(
+                    path: 'safety',
+                    builder: (context, state) => const SafetySupportScreen(),
                   ),
                 ],
               ),

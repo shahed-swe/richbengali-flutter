@@ -793,15 +793,24 @@ class _MeScreenState extends ConsumerState<MeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Legal & Privacy',
+            'Safety & Legal',
             style: AppTextStyles.textLgBold.copyWith(color: AppColors.gray700),
           ),
           const SizedBox(height: 4),
           Text(
-            'Please review our legal terms and community safety guidelines before continuing.',
+            'Report a problem, or review our terms and safety standards.',
             style: AppTextStyles.textXs.copyWith(color: AppColors.gray500),
           ),
           const SizedBox(height: 14),
+          // First, and deliberately. The two rows under it open a browser;
+          // this one stays in the app, which is what makes it the one a user
+          // with a problem can always reach.
+          _LegalRow(
+            icon: LucideIcons.shieldAlert,
+            label: 'Safety & Support',
+            onTap: () => context.push('/me/safety'),
+          ),
+          const SizedBox(height: 8),
           _LegalRow(
             icon: LucideIcons.fileText,
             label: 'Terms of Service',

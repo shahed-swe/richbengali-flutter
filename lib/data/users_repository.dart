@@ -55,6 +55,18 @@ class UsersRepository {
     });
   }
 
+  /// POST /users/me/feedback — a concern that isn't about one person.
+  ///
+  /// [reportUser] needs somebody to report; this does not, so it stays
+  /// reachable from Settings whether or not the user has ever matched with
+  /// anyone. Same reason categories.
+  Future<void> sendFeedback({required String reason, required String details}) async {
+    await _dio.post('/users/me/feedback', data: {
+      'reason': reason,
+      'details': details.trim(),
+    });
+  }
+
   /// DELETE /users/me — permanently deletes the account + all associated data.
   Future<void> deleteMyAccount() => _dio.delete('/users/me');
 
