@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../state/plans_provider.dart';
 import '../../state/me_provider.dart';
 import '../../data/stripe_repository.dart';
+import '../../models/plan.dart';
 import '../../widgets/plan_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/skeleton.dart';
@@ -20,18 +21,27 @@ class PlansScreen extends ConsumerStatefulWidget {
 class _PlansScreenState extends ConsumerState<PlansScreen> {
   bool _checkingOut = false;
 
-  Future<void> _handleBuy(String priceId) async {
+  /// Buy a package, through whichever gateway the user picks.
+  ///
+  /// Both end the same way — a URL we hand to the browser — so the only thing
+  /// that differs is who is asked for it. A package with no taka price cannot
+  /// go through PayStation, so that one skips the question entirely rather
+  /// than offering a choice that would fail.
+  Future<void> _handleBuy(Plan plan) async {
     if (_checkingOut) return;
+
+    final useTaka = plan.supportsPaystation ? await _askGateway(plan) : false;
+    if (useTaka == null) return; // dismissed
+
     setState(() => _checkingOut = true);
     try {
-      final url =
-          await ref.read(stripeRepositoryProvider).checkout(priceId);
-      if (url.isNotEmpty) {
-        await launchUrl(
-          Uri.parse(url),
-          mode: LaunchMode.externalApplication,
-        );
-      }
+      final repo = ref.read(stripeRepositoryProvider);
+      final url = useTaka
+          ? await repo.paystationCheckout(plan.id)
+          : await repo.checkout(plan.priceId);
+
+      if (url.isEmpty) throw Exception('No checkout link was returned');
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -44,6 +54,49 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
     } finally {
       if (mounted) setState(() => _checkingOut = false);
     }
+  }
+
+  /// true = pay in taka, false = pay by card, null = dismissed.
+  Future<bool?> _askGateway(Plan plan) {
+    final taka = plan.amountBdt!.round().toString().replaceAllMapped(
+          RegExp(r'(\d)(?=(\d{3})+$)'),
+          (m) => '${m[1]},',
+        );
+    return showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Text(
+                'How would you like to pay?',
+                style: AppTextStyles.textLgBold
+                    .copyWith(color: AppColors.gray900),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(LucideIcons.smartphone,
+                  color: AppColors.brandPink),
+              title: const Text('bKash, Nagad, Rocket or card'),
+              subtitle: Text('৳$taka'),
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+            ListTile(
+              leading:
+                  const Icon(LucideIcons.creditCard, color: AppColors.gray600),
+              title: const Text('International card'),
+              subtitle: Text('\$${plan.amountUsd.toStringAsFixed(2)}'),
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _onRefresh() async {
@@ -266,7 +319,10 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
                                   return PlanCard(
                                     plan: plan,
                                     isCurrent: isCurrent,
-                                    onBuy: _handleBuy,
+                                    // The card reports the price id; the
+                                    // gateway choice needs the whole package,
+                                    // so it is closed over instead.
+                                    onBuy: (_) => _handleBuy(plan),
                                     isLoading: _checkingOut,
                                   );
                                 }).toList(),

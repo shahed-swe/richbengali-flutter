@@ -37,6 +37,20 @@ class StripeRepository {
     return url;
   }
 
+  /// Returns the PayStation hosted-checkout URL for a package.
+  ///
+  /// Asked for by our own plan id, not the Stripe price id: this has nothing
+  /// to do with Stripe, and the amount charged is the package's taka price.
+  /// PayStation's own page then offers bKash, Nagad, Rocket, Upay and cards,
+  /// so there is nothing more for us to present.
+  Future<String> paystationCheckout(String planId) async {
+    final resp = await _dio.post<Map<String, dynamic>>(
+      '/paystation/checkout',
+      data: {'plan_id': planId, 'platform': 'app'},
+    );
+    return resp.data?['payment_url']?.toString() ?? '';
+  }
+
   Future<void> cancelSubscription() async {
     await _dio.post<void>('/stripe/subscription/cancel');
   }
