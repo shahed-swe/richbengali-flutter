@@ -658,17 +658,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final otherUserAsync = ref.watch(_otherUserProvider(_otherUserId));
     final otherUser = otherUserAsync.asData?.value;
 
-    // Permission gate — mirrors RN canSend logic
+    // Permission gate.
+    //
+    // Credit is the only thing that opens chat and calls for a man: he buys a
+    // package, the balance pays for what he uses, and he buys again — the way
+    // a phone is topped up. There is no subscription to hold any more, so the
+    // old `isPremium` test (a Stripe subscription id) would now be false for
+    // everyone and would lock out men whose wallets are full.
     final isFemale = me?.gender == 'female';
     final isMale = me?.gender == 'male';
-    final isPremium = me?.isPremium ?? false;
     final hasBalance = (me?.walletBalanceUsd ?? 0) > 0;
-    final canSend = isFemale || (isPremium && hasBalance);
+    final canSend = isFemale || hasBalance;
 
     // Call buttons logic
     final otherGender = otherUser?.gender;
     final showCallButtons = (isFemale && otherGender == 'male') ||
-        (isMale && isPremium && hasBalance && otherGender == 'female');
+        (isMale && hasBalance && otherGender == 'female');
 
     final isInCall = otherUser?.isInCall ?? false;
     final isOnline = otherUser?.isOnline ?? false;
@@ -1464,7 +1469,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                             borderRadius: BorderRadius.circular(99),
                           ),
                           child: const Text(
-                            'Subscribe to Chat',
+                            'Recharge to Chat',
                             style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
@@ -1475,7 +1480,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'You need an active subscription to send messages',
+                        'Your balance is empty. Recharge to send messages and make calls.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Color(0xFF6B7280),
