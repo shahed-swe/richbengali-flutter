@@ -51,13 +51,7 @@ class StripeRepository {
     return resp.data?['payment_url']?.toString() ?? '';
   }
 
-  Future<void> cancelSubscription() async {
-    await _dio.post<void>('/stripe/subscription/cancel');
-  }
 
-  Future<void> resumeSubscription() async {
-    await _dio.post<void>('/stripe/subscription/resume');
-  }
 
   Future<List<Transaction>> getTransactions(int page, int limit) async {
     final resp = await _dio.get<dynamic>(
