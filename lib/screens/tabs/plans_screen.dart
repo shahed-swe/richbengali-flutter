@@ -10,6 +10,7 @@ import '../../widgets/plan_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/skeleton.dart';
 import '../../theme/theme.dart';
+import '../../core/money.dart';
 
 class PlansScreen extends ConsumerStatefulWidget {
   const PlansScreen({super.key});
@@ -89,7 +90,7 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
               leading:
                   const Icon(LucideIcons.creditCard, color: AppColors.gray600),
               title: const Text('International card'),
-              subtitle: Text('\$${plan.amountUsd.toStringAsFixed(2)}'),
+              subtitle: Text(formatBdt(plan.amountUsd, decimals: 2)),
               onTap: () => Navigator.pop(ctx, false),
             ),
             const SizedBox(height: 12),
@@ -256,7 +257,7 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
                                         height: 36,
                                       )
                                     : Text(
-                                        '\$${balance.toStringAsFixed(2)}',
+                                        formatBdt(balance),
                                         style: const TextStyle(
                                           fontSize: 36,
                                           fontWeight: FontWeight.w900,

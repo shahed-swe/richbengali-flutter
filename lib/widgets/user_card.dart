@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../models/user.dart';
 import '../state/user_detail_provider.dart';
 import '../theme/theme.dart';
+import '../core/money.dart';
 
 class UserCard extends ConsumerWidget {
   const UserCard({
@@ -128,7 +129,7 @@ class UserCard extends ConsumerWidget {
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          '\$${user.callPricePerMinuteUsd!.toStringAsFixed(2)}/min',
+                          '${formatBdtRate(user.callPricePerMinuteUsd!)}/min',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,

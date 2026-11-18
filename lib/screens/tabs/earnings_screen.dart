@@ -11,6 +11,7 @@ import '../../widgets/skeleton.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/payout_modal.dart';
 import '../../theme/theme.dart';
+import '../../core/money.dart';
 
 class EarningsScreen extends ConsumerStatefulWidget {
   const EarningsScreen({super.key});
@@ -145,7 +146,7 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      '\$${balance.toStringAsFixed(2)}',
+                                      formatBdt(balance),
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 22,
@@ -177,7 +178,7 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
                                     Text(
-                                      '\$${today.toStringAsFixed(2)}',
+                                      formatBdt(today),
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 16,
@@ -209,7 +210,7 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
                                     Text(
-                                      '\$${lifetime.toStringAsFixed(2)}',
+                                      formatBdt(lifetime),
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 16,
@@ -290,7 +291,7 @@ class _EarningsScreenState extends ConsumerState<EarningsScreen> {
                               ? 'Add your payout details to get paid'
                               : balance >= minCap
                                   ? 'Payouts are sent by our team'
-                                  : 'Paid out once you reach \$${minCap.toStringAsFixed(0)}',
+                                  : 'Paid out once you reach ${formatBdt(minCap)}',
                           style: const TextStyle(
                             color: Color(0xE6FFFFFF),
                             fontSize: 11,
@@ -575,7 +576,7 @@ class _EarningRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${isPositive ? '+' : ''}\$${item.amount.abs().toStringAsFixed(2)}',
+                formatBdtSigned(isPositive ? item.amount.abs() : -item.amount.abs(), decimals: 2),
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -665,7 +666,7 @@ class _WithdrawalRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '-\$${item.amountUsd.toStringAsFixed(2)}',
+                formatBdtSigned(-item.amountUsd, decimals: 2),
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,

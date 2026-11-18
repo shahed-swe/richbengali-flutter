@@ -6,6 +6,7 @@ import '../state/me_provider.dart';
 import '../state/notifications_provider.dart';
 import '../models/notification.dart';
 import '../theme/theme.dart';
+import '../core/money.dart';
 
 /// Sticky app header matching AppHeader.tsx + HeaderRight.tsx
 class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
@@ -88,7 +89,7 @@ class _HeaderRight extends ConsumerWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          '\$${balance.toStringAsFixed(2)}',
+                          formatBdt(balance),
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -109,7 +110,7 @@ class _HeaderRight extends ConsumerWidget {
                     bgColor: const Color(0xFFede9fe),
                     borderColor: const Color(0xFFddd6fe),
                     child: Text(
-                      '\$${balance.isNaN ? "0.00" : balance.toStringAsFixed(2)}',
+                      formatBdt(balance.isNaN ? 0 : balance),
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,

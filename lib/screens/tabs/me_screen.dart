@@ -18,6 +18,7 @@ import '../../widgets/city_autocomplete_field.dart';
 import '../../widgets/image_viewer.dart';
 import '../../widgets/me/extended_fields.dart';
 import '../../widgets/me/photos_grid.dart';
+import '../../core/money.dart';
 
 class MeScreen extends ConsumerStatefulWidget {
   const MeScreen({super.key});
@@ -583,7 +584,7 @@ class _MeScreenState extends ConsumerState<MeScreen> {
             icon: LucideIcons.gauge,
             label: 'Most you can earn per day',
             value: selected.dailyCapUsd > 0
-                ? '\$${selected.dailyCapUsd.toStringAsFixed(0)}'
+                ? formatBdt(selected.dailyCapUsd)
                 : '—',
           ),
         ],

@@ -9,6 +9,7 @@ import '../../core/json_parse.dart';
 import '../../models/user.dart';
 import '../../services/socket_service.dart';
 import '../../theme/theme.dart';
+import '../../core/money.dart';
 
 /// Mirrors EarningsOverlay.tsx â€” blurred pill showing live earnings (female)
 /// or remaining balance minutes (male) during an ongoing call.
@@ -90,13 +91,13 @@ class _EarningsOverlayState extends ConsumerState<EarningsOverlay> {
               final computed = seconds / 3600.0 * _femaleRatePerHourUsd;
               final earnings = math.max(computed, _backendEarnings);
               return _ValueText(
-                text: '\$${earnings.toStringAsFixed(2)}',
+                text: formatBdt(earnings, decimals: 2),
                 color: iconColor,
               );
             },
           )
         : _ValueText(
-            text: '\$${_displayBalance().toStringAsFixed(2)}',
+            text: formatBdt(_displayBalance(), decimals: 2),
             color: iconColor,
           );
     final labelText = isFemale ? 'Earnings' : 'Balance';

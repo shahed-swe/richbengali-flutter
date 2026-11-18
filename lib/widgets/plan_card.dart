@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/plan.dart';
 import '../theme/theme.dart';
+import '../core/money.dart';
 
 class PlanCard extends StatelessWidget {
   const PlanCard({
@@ -59,7 +60,9 @@ class PlanCard extends StatelessWidget {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                '\$${plan.amountUsd.toStringAsFixed(plan.amountUsd == plan.amountUsd.roundToDouble() ? 0 : 2)}',
+                plan.amountBdt != null
+                    ? '৳${plan.amountBdt!.round()}'
+                    : formatBdt(plan.amountUsd),
                 style: const TextStyle(
                   fontSize: 36,
                   fontWeight: FontWeight.w900,
@@ -103,7 +106,7 @@ class PlanCard extends StatelessWidget {
                 Text(
                   // Credit, not minutes: what a dollar buys in talk time
                   // depends on the rate of whoever he calls.
-                  '\$${plan.amountUsd.toStringAsFixed(0)} call credit',
+                  'About ${plan.callMinutes} minutes of talking',
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
